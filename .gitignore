@@ -1,0 +1,6 @@
+*.lock.json
+.DS_Store
+*.swp
+*.swo
+*~
+.luarc.json
