@@ -228,3 +228,86 @@ for _, name in ipairs(servers) do
     print("Registered server: " .. name)
 end
 ```
+
+## Notification Configuration Examples
+
+### Quiet Mode (Minimal Notifications)
+
+```lua
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run" },
+    },
+}, {
+    notify = {
+        on_start = false,  -- Silent even on first start
+        on_attach = false,
+        on_stop = false,
+        on_error = true,   -- Still show errors
+    }
+})
+```
+
+### Verbose Mode (All Notifications)
+
+```lua
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run" },
+    },
+}, {
+    notify = {
+        on_start = true,
+        on_attach = true,  -- Notify on every attach
+        on_stop = true,    -- Notify on stop
+        on_error = true,
+    }
+})
+```
+
+### Default (Recommended)
+
+The default configuration is quiet during normal operations:
+
+```lua
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run" },
+    },
+})
+-- Equivalent to:
+-- {
+--     notify = {
+--         on_start = true,   -- Only when starting NEW server
+--         on_attach = false, -- Silent when attaching to existing
+--         on_stop = false,   -- Silent on normal stop
+--         on_error = true,   -- Always show errors
+--     }
+-- }
+```
+
+### Per-Server Custom Notifications
+
+Use `on_start` and `on_exit` callbacks to override default notifications:
+
+```lua
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run" },
+        on_start = function(pid)
+            -- Custom notification (overrides default)
+            vim.notify("🔥 ChromaDB ready at http://localhost:8000", vim.log.levels.INFO)
+        end,
+        on_exit = function(exit_code)
+            if exit_code ~= 0 then
+                vim.notify("⚠️  ChromaDB crashed!", vim.log.levels.WARN)
+            end
+        end,
+    },
+})
+```
+

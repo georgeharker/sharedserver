@@ -71,6 +71,30 @@ require("sharedserver").setup(servers, opts)
 - **servers**: A table of server configurations (see below)
 - **opts**: Optional configuration table with the following options:
   - **commands** (default: `true`): Whether to automatically create user commands
+  - **notify**: Notification preferences (see below)
+
+### Notification Configuration
+
+Control when the plugin shows notifications:
+
+```lua
+require("sharedserver").setup({
+    -- servers...
+}, {
+    commands = true,
+    notify = {
+        on_start = true,   -- Notify when starting a new server (default: true)
+        on_attach = false, -- Notify when attaching to existing (default: false)
+        on_stop = false,   -- Notify when stopping a server (default: false)
+        on_error = true,   -- Always notify on errors (default: true)
+    }
+})
+```
+
+By default, the plugin is quiet during normal operations (attach/detach) and only notifies when:
+- A new server is started for the first time
+- An error occurs
+- A server exits unexpectedly (non-zero exit code)
 
 ### Multiple Servers (Recommended)
 
@@ -183,16 +207,34 @@ local server_names = sharedserver.list()
 
 When commands are enabled (default), the following user commands are automatically created:
 
-## Commands
-
-When commands are enabled (default), the following user commands are automatically created:
-
 - `:ServerStart <name>` - Start a named server
 - `:ServerStop <name>` - Stop a named server
 - `:ServerRestart <name>` - Restart a named server
-- `:ServerStatus [name]` - Show server status (all servers if no name given)
-- `:ServerList` - List all registered servers
+- `:ServerStatus [name]` - Show server status in a floating window (all servers if no name given)
+- `:ServerList` - List all registered servers (same as `:ServerStatus` with no args)
 - `:ServerStopAll` - Stop all servers
+
+The `:ServerStatus` command displays a rich floating window with:
+- Server name and running status (●/○)
+- PID, refcount, and uptime for running servers
+- Attached/detached state
+- Lazy mode indicator
+- Full command details when viewing a specific server
+
+Press `q` or `<Esc>` to close the status window.
+
+**Example output of `:ServerStatus`:**
+```
+╭──────────────────────────── Shared Servers ─────────────────────────────╮
+│ NAME                 STATUS       PID      REFS     UPTIME               │
+│ ────────────────────────────────────────────────────────────────────────│
+│ ● chroma             running      1234     2        2h 15m               │
+│ ● redis              running      5678     1        45m 32s              │
+│ ○ postgres           stopped      -        -        - [lazy]             │
+│                                                                           │
+│ Press q or <Esc> to close                                                │
+╰───────────────────────────────────────────────────────────────────────────╯
+```
 
 To disable command creation, pass `{ commands = false }` to `setup()`.
 
@@ -316,6 +358,23 @@ end
 - **Expensive services**: Large ML models, heavy databases (use `lazy = true`)
 
 For detailed configuration examples and usage patterns, see [EXAMPLES.md](./EXAMPLES.md).
+
+## Shell Integration
+
+The `bin/` directory contains a transparent wrapper that allows non-Neovim processes to participate in the refcounting system:
+
+```bash
+# Instead of: chroma run --path ~/.local/share/chromadb
+# Run: sharedserver-wrapper chroma chroma run --path ~/.local/share/chromadb
+```
+
+The wrapper:
+- Increments refcount when starting
+- Execs into the real server (preserving PID and stdio)
+- Spawns an efficient watcher process for cleanup
+- Is completely transparent to the calling process
+
+This enables third-party tools to share servers with Neovim instances. See [bin/README.md](./bin/README.md) for details.
 
 ## License
 

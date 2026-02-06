@@ -6,10 +6,43 @@ local M = {}
 -- Storage for multiple server configurations
 M._servers = {}
 
+-- Default configuration
+M._config = {
+    commands = true,
+    notify = {
+        on_start = true,     -- Notify when starting a new server
+        on_attach = false,   -- Notify when attaching to existing server
+        on_stop = false,     -- Notify when stopping a server
+        on_error = true,     -- Always notify on errors
+    }
+}
+
+-- Internal notification wrapper
+M._notify = function(message, level, event_type)
+    event_type = event_type or "info"
+
+    -- Check if this notification type is enabled
+    if event_type == "attach" and not M._config.notify.on_attach then
+        return
+    elseif event_type == "stop" and not M._config.notify.on_stop then
+        return
+    elseif event_type == "start" and not M._config.notify.on_start then
+        return
+    end
+
+    -- Always show errors
+    if level == vim.log.levels.ERROR or M._config.notify.on_error then
+        vim.notify(message, level or vim.log.levels.INFO)
+    end
+end
+
 -- Setup multiple servers at once
 M.setup = function(servers, opts)
     servers = servers or {}
-    opts = opts or { commands = true }
+    opts = opts or {}
+
+    -- Merge config with defaults
+    M._config = vim.tbl_deep_extend("force", M._config, opts)
 
     -- Support both single server (old API) and multiple servers (new API)
     if servers.command then
@@ -31,7 +64,7 @@ M.setup = function(servers, opts)
     })
 
     -- Setup user commands if requested (enabled by default)
-    if opts.commands ~= false then
+    if M._config.commands ~= false then
         M._setup_commands()
     end
 end
@@ -104,7 +137,7 @@ end
 M.attach_if_running = function(name)
     local server = M._servers[name]
     if not server then
-        vim.notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR)
+        M._notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR, "error")
         return
     end
 
@@ -114,7 +147,7 @@ M.attach_if_running = function(name)
         lockdata.refcount = lockdata.refcount + 1
         M._write_lock(server.config.pidfile, lockdata)
         server.attached = true
-        vim.notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")")
+        M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "attach")
     end
     -- If not running, do nothing (lazy mode)
 end
@@ -123,14 +156,14 @@ end
 M.start = function(name)
     local server = M._servers[name]
     if not server then
-        vim.notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR)
+        M._notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR, "error")
         return false
     end
 
     local config = server.config
 
     if not vim.fn.executable(config.command) then
-        vim.notify("sharedserver: command '" .. config.command .. "' is not executable", vim.log.levels.WARN)
+        M._notify("sharedserver: command '" .. config.command .. "' is not executable", vim.log.levels.WARN, "error")
         return false
     end
 
@@ -141,7 +174,7 @@ M.start = function(name)
         lockdata.refcount = lockdata.refcount + 1
         M._write_lock(config.pidfile, lockdata)
         server.attached = true
-        vim.notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")")
+        M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "attach")
         return true
     end
 
@@ -160,7 +193,10 @@ M.start = function(name)
         cwd = config.working_dir,
         detached = true,
         on_exit = function(job, exit_code)
-            vim.notify("sharedserver: '" .. name .. "' exited with code " .. exit_code)
+            -- Only notify on non-zero exit (unexpected)
+            if exit_code ~= 0 then
+                M._notify("sharedserver: '" .. name .. "' exited with code " .. exit_code, vim.log.levels.WARN, "error")
+            end
             M._remove_lock(config.pidfile)
             server.job = nil
             server.attached = false
@@ -176,8 +212,8 @@ M.start = function(name)
         local pid = server.job.pid
 
         if pid then
-            vim.notify("sharedserver: started '" .. name .. "' (pid " .. pid .. ")")
-            M._write_lock(config.pidfile, {refcount = 1, pid = pid})
+            M._notify("sharedserver: started '" .. name .. "' (pid " .. pid .. ")", vim.log.levels.INFO, "start")
+            M._write_lock(config.pidfile, {refcount = 1, pid = pid, started_at = os.time()})
             server.attached = true
 
             if config.on_start then
@@ -185,7 +221,7 @@ M.start = function(name)
             end
             return true
         else
-            vim.notify("sharedserver: failed to start '" .. name .. "'", vim.log.levels.ERROR)
+            M._notify("sharedserver: failed to start '" .. name .. "'", vim.log.levels.ERROR, "error")
             return false
         end
     end
@@ -196,7 +232,7 @@ end
 M.stop = function(name)
     local server = M._servers[name]
     if not server then
-        vim.notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR)
+        M._notify("sharedserver: unknown server '" .. name .. "'", vim.log.levels.ERROR, "error")
         return
     end
 
@@ -218,7 +254,7 @@ M.stop = function(name)
         -- Last neovim instance, kill the server
         if server.job and server.job.handle then
             server.job.handle:kill(15)  -- SIGTERM
-            vim.notify("sharedserver: stopped '" .. name .. "' (pid " .. lockdata.pid .. ")")
+            M._notify("sharedserver: stopped '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "stop")
         end
         M._remove_lock(config.pidfile)
         server.attached = false
@@ -247,10 +283,10 @@ M._read_lock = function(pidfile)
             if ok then
                 return decoded
             else
-                vim.notify("sharedserver: failed to decode lockfile " .. pidfile, vim.log.levels.WARN)
+                M._notify("sharedserver: failed to decode lockfile " .. pidfile, vim.log.levels.WARN, "error")
             end
         else
-            vim.notify("sharedserver: failed to read lockfile " .. pidfile, vim.log.levels.WARN)
+            M._notify("sharedserver: failed to read lockfile " .. pidfile, vim.log.levels.WARN, "error")
         end
     end
     return nil
@@ -263,7 +299,7 @@ M._write_lock = function(pidfile, lockdata)
         file:write(content_str)
         file:close()
     else
-        vim.notify("sharedserver: failed to write lockfile " .. pidfile, vim.log.levels.ERROR)
+        M._notify("sharedserver: failed to write lockfile " .. pidfile, vim.log.levels.ERROR, "error")
     end
 end
 
@@ -326,6 +362,181 @@ M.list = function()
     return names
 end
 
+-- Format uptime from seconds
+M._format_uptime = function(seconds)
+    if seconds < 60 then
+        return string.format("%ds", seconds)
+    elseif seconds < 3600 then
+        return string.format("%dm %ds", math.floor(seconds / 60), seconds % 60)
+    elseif seconds < 86400 then
+        local hours = math.floor(seconds / 3600)
+        local mins = math.floor((seconds % 3600) / 60)
+        return string.format("%dh %dm", hours, mins)
+    else
+        local days = math.floor(seconds / 86400)
+        local hours = math.floor((seconds % 86400) / 3600)
+        return string.format("%dd %dh", days, hours)
+    end
+end
+
+-- Create floating window with content
+M._create_float = function(lines, title, opts)
+    opts = opts or {}
+
+    -- Create buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+    -- Buffer options
+    vim.bo[buf].buftype = 'nofile'
+    vim.bo[buf].bufhidden = 'wipe'
+    vim.bo[buf].filetype = 'sharedserver'
+    vim.bo[buf].modifiable = false
+
+    -- Calculate dimensions
+    local width = opts.width or 70
+    local height = opts.height or math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
+
+    -- Center position
+    local col = math.floor((vim.o.columns - width) / 2)
+    local row = math.floor((vim.o.lines - height) / 2)
+
+    -- Window options
+    local win_opts = {
+        relative = 'editor',
+        width = width,
+        height = height,
+        col = col,
+        row = row,
+        style = 'minimal',
+        border = 'rounded',
+        title = title or '',
+        title_pos = 'center',
+    }
+
+    -- Create window
+    local win = vim.api.nvim_open_win(buf, true, win_opts)
+
+    -- Window options
+    vim.wo[win].cursorline = true
+    vim.wo[win].number = false
+    vim.wo[win].relativenumber = false
+
+    -- Keymaps
+    local close_win = function()
+        if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+        end
+    end
+
+    vim.keymap.set('n', 'q', close_win, { buffer = buf, nowait = true })
+    vim.keymap.set('n', '<Esc>', close_win, { buffer = buf, nowait = true })
+
+    return buf, win
+end
+
+-- Show status in floating window
+M._show_status_float = function(server_name)
+    local lines = {}
+
+    if server_name then
+        -- Show single server details
+        local status = M.status(server_name)
+        local server = M._servers[server_name]
+
+        if status.error then
+            lines = { status.error }
+        else
+            local icon = status.running and "●" or "○"
+            local state = status.running and "running" or "stopped"
+            local color = status.running and "Green" or "Gray"
+
+            table.insert(lines, string.format("%s %s - %s", icon, server_name, state))
+            table.insert(lines, "")
+
+            if status.running then
+                table.insert(lines, string.format("  PID:        %d", status.pid))
+                table.insert(lines, string.format("  Refcount:   %d", status.refcount))
+                table.insert(lines, string.format("  Attached:   %s", status.attached and "yes" or "no"))
+
+                -- Calculate uptime
+                local lockdata = M._read_lock(server.config.pidfile)
+                if lockdata and lockdata.started_at then
+                    local uptime = os.time() - lockdata.started_at
+                    table.insert(lines, string.format("  Uptime:     %s", M._format_uptime(uptime)))
+                end
+            end
+
+            if server then
+                table.insert(lines, "")
+                table.insert(lines, string.format("  Command:    %s", server.config.command))
+                if #server.config.args > 0 then
+                    table.insert(lines, string.format("  Args:       %s", table.concat(server.config.args, " ")))
+                end
+                table.insert(lines, string.format("  Lazy:       %s", status.lazy and "yes" or "no"))
+                table.insert(lines, string.format("  Pidfile:    %s", server.config.pidfile))
+            end
+        end
+
+        M._create_float(lines, string.format(" Server: %s ", server_name))
+    else
+        -- Show all servers
+        local statuses = M.status_all()
+        local names = vim.tbl_keys(statuses)
+        table.sort(names)
+
+        if #names == 0 then
+            lines = { "No servers registered" }
+            M._create_float(lines, " Shared Servers ")
+            return
+        end
+
+        -- Header
+        table.insert(lines, string.format("%-20s %-12s %-8s %-8s %s", "NAME", "STATUS", "PID", "REFS", "UPTIME"))
+        table.insert(lines, string.rep("─", 68))
+
+        -- Server list
+        for _, name in ipairs(names) do
+            local status = statuses[name]
+            local server = M._servers[name]
+
+            local icon = status.running and "●" or "○"
+            local state = status.running and "running" or "stopped"
+            local pid_str = status.running and tostring(status.pid) or "-"
+            local refs_str = status.running and tostring(status.refcount) or "-"
+            local uptime_str = "-"
+
+            if status.running then
+                local lockdata = M._read_lock(server.config.pidfile)
+                if lockdata and lockdata.started_at then
+                    local uptime = os.time() - lockdata.started_at
+                    uptime_str = M._format_uptime(uptime)
+                end
+            end
+
+            local lazy_indicator = status.lazy and " [lazy]" or ""
+            local attached_indicator = (status.running and status.attached) and "" or " [detached]"
+
+            table.insert(lines, string.format(
+                "%s %-18s %-12s %-8s %-8s %s%s%s",
+                icon,
+                name,
+                state,
+                pid_str,
+                refs_str,
+                uptime_str,
+                lazy_indicator,
+                attached_indicator
+            ))
+        end
+
+        table.insert(lines, "")
+        table.insert(lines, "Press q or <Esc> to close")
+
+        M._create_float(lines, " Shared Servers ", { width = 75 })
+    end
+end
+
 -- Internal function to setup user commands
 M._setup_commands = function()
     -- :ServerStart <name> - Start a named server
@@ -384,52 +595,7 @@ M._setup_commands = function()
 
     -- :ServerStatus [name] - Show server status (all servers if no name given)
     vim.api.nvim_create_user_command("ServerStatus", function(opts)
-        if opts.args == "" then
-            -- Show all servers
-            local statuses = M.status_all()
-            local names = vim.tbl_keys(statuses)
-            table.sort(names)
-
-            if #names == 0 then
-                print("No servers registered")
-                return
-            end
-
-            print("Registered servers:")
-            print("---")
-            for _, name in ipairs(names) do
-                local status = statuses[name]
-                local state
-                if status.running then
-                    state = string.format("running (pid: %d, refs: %d%s)",
-                        status.pid,
-                        status.refcount,
-                        status.attached and ", attached" or ", not attached")
-                else
-                    state = "stopped"
-                end
-                local lazy_indicator = status.lazy and " [lazy]" or ""
-                print(string.format("  %s: %s%s", name, state, lazy_indicator))
-            end
-        else
-            -- Show specific server
-            local status = M.status(opts.args)
-            if status.error then
-                print(status.error)
-            else
-                local state
-                if status.running then
-                    state = string.format("running (pid: %d, refs: %d%s)",
-                        status.pid,
-                        status.refcount,
-                        status.attached and ", attached" or ", not attached")
-                else
-                    state = "stopped"
-                end
-                local lazy_indicator = status.lazy and " [lazy]" or ""
-                print(string.format("%s: %s%s", opts.args, state, lazy_indicator))
-            end
-        end
+        M._show_status_float(opts.args ~= "" and opts.args or nil)
     end, {
         nargs = "?",
         complete = function()
@@ -440,21 +606,7 @@ M._setup_commands = function()
 
     -- :ServerList - List all registered servers
     vim.api.nvim_create_user_command("ServerList", function()
-        local servers = M.list()
-        table.sort(servers)
-
-        if #servers == 0 then
-            print("No servers registered")
-            return
-        end
-
-        print("Registered servers:")
-        for _, name in ipairs(servers) do
-            local status = M.status(name)
-            local state_icon = status.running and "●" or "○"
-            local lazy_indicator = status.lazy and " [lazy]" or ""
-            print(string.format("  %s %s%s", state_icon, name, lazy_indicator))
-        end
+        M._show_status_float(nil)
     end, {
         nargs = 0,
         desc = "List all registered servers"
@@ -463,7 +615,7 @@ M._setup_commands = function()
     -- :ServerStopAll - Stop all servers
     vim.api.nvim_create_user_command("ServerStopAll", function()
         M.stop_all()
-        vim.notify("Stopped all servers")
+        M._notify("Stopped all servers", vim.log.levels.INFO, "stop")
     end, {
         nargs = 0,
         desc = "Stop all servers"

@@ -4,3 +4,7 @@
 *.swo
 *~
 .luarc.json
+
+# Compiled binaries
+bin/sharedserver-watcher
+bin/*.o
