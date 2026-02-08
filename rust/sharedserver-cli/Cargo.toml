@@ -1,0 +1,26 @@
+[package]
+name = "sharedserver-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "A lightweight tool for managing shared servers with reference counting"
+repository = "https://github.com/yourusername/sharedserver.nvim"
+readme = "../README.md"
+keywords = ["server", "process-management", "neovim"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "sharedserver"
+path = "src/main.rs"
+
+[dependencies]
+sharedserver-core = { path = "../sharedserver-core" }
+anyhow.workspace = true
+clap = { version = "4.4", features = ["derive", "color", "help", "usage", "error-context"] }
+clap_complete = "4.4"
+serde.workspace = true
+serde_json.workspace = true
+nix.workspace = true
+chrono.workspace = true
+colored = "2.1"

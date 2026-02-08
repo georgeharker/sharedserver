@@ -6,17 +6,35 @@ local M = {}
 -- Storage for multiple server configurations
 M._servers = {}
 
+-- Get system-wide lockfile directory for sharedserver
+-- Matches the Rust sharedserver logic:
+-- 1. Check SHAREDSERVER_LOCKDIR env var
+-- 2. Use XDG_RUNTIME_DIR/sharedserver if set
+-- 3. Fall back to /tmp/sharedserver
+M._get_lockdir = function()
+    local lockdir_env = os.getenv("SHAREDSERVER_LOCKDIR")
+    if lockdir_env then
+        return lockdir_env
+    end
+
+    local xdg_runtime = os.getenv("XDG_RUNTIME_DIR")
+    if xdg_runtime then
+        return xdg_runtime .. "/sharedserver"
+    end
+
+    return "/tmp/sharedserver"
+end
+
 -- Default configuration
 M._config = {
     commands = true,
     notify = {
         on_start = true,     -- Notify when starting a new server
-        on_attach = false,   -- Notify when attaching to existing server
+        on_attach = true,   -- Notify when attaching to existing server
         on_stop = false,     -- Notify when stopping a server
         on_error = true,     -- Always notify on errors
     }
 }
-
 -- Internal notification wrapper
 M._notify = function(message, level, event_type)
     event_type = event_type or "info"
@@ -35,6 +53,148 @@ M._notify = function(message, level, event_type)
         vim.notify(message, level or vim.log.levels.INFO)
     end
 end
+
+-- ============================================================================
+-- sharedserver Integration (Rust implementation)
+-- ============================================================================
+
+-- Note: The Neovim plugin uses sharedserver directly with incref/decref commands.
+-- The process-wrapper binary is available for shell scripts but is NOT used here.
+-- The watcher automatically detects and cleans up dead clients every 5 seconds.
+
+-- Find sharedserver binary
+M._find_sharedserver = function()
+    -- Try relative to plugin directory first (Rust version)
+    local script_path = debug.getinfo(1).source:sub(2)  -- Remove @ prefix
+    local plugin_dir = vim.fn.fnamemodify(script_path, ':h:h:h')
+    local sharedserver = plugin_dir .. '/rust/target/release/sharedserver'
+
+    if vim.fn.executable(sharedserver) == 1 then
+        return sharedserver
+    end
+
+    -- Try common installation locations
+    local common_paths = {
+        vim.fn.expand("~/.local/bin/sharedserver"),
+        "/usr/local/bin/sharedserver",
+        "/opt/homebrew/bin/sharedserver",
+    }
+
+    for _, path in ipairs(common_paths) do
+        if vim.fn.executable(path) == 1 then
+            return path
+        end
+    end
+
+    return nil
+end
+
+-- Call sharedserver and return stdout, stderr, exit_code
+M._call_sharedserver = function(args, opts)
+    opts = opts or {}
+    local sharedserver = M._find_sharedserver()
+
+    if not sharedserver then
+        return nil, "sharedserver not found", 1
+    end
+
+    -- Set SHAREDSERVER_LOCKDIR to system-wide cache directory
+    local lockdir = M._get_lockdir()
+    vim.fn.mkdir(lockdir, "p")
+
+    local env = vim.tbl_extend("force", vim.fn.environ(), {
+        SHAREDSERVER_LOCKDIR = lockdir,
+        SHAREDSERVER_DEBUG = opts.debug and "1" or "0",
+    })
+
+    local stdout_lines = {}
+    local stderr_lines = {}
+
+    local job = Job:new({
+        command = sharedserver,
+        args = args,
+        env = env,
+        on_stdout = function(_, line)
+            table.insert(stdout_lines, line)
+        end,
+        on_stderr = function(_, line)
+            table.insert(stderr_lines, line)
+        end,
+    })
+
+    job:sync()
+
+    local stdout = table.concat(stdout_lines, "\n")
+    local stderr = table.concat(stderr_lines, "\n")
+    local exit_code = job.code
+
+    return stdout, stderr, exit_code
+end
+
+-- Parse sharedserver info JSON output
+M._parse_sharedserver_info = function(json_str)
+    if not json_str or json_str == "" then
+        return nil, "empty response"
+    end
+
+    local ok, parsed = pcall(vim.fn.json_decode, json_str)
+    if not ok then
+        return nil, "failed to parse JSON: " .. tostring(parsed)
+    end
+
+    return parsed, nil
+end
+
+-- Check if server exists using sharedserver
+M._sharedserver_check = function(name)
+    local _, _, exit_code = M._call_sharedserver({"check", name})
+    return exit_code == 0
+end
+
+-- Get server info using sharedserver
+M._sharedserver_info = function(name)
+    local stdout, stderr, exit_code = M._call_sharedserver({"info", name, "--json"})
+
+    if exit_code ~= 0 then
+        return nil, stderr or "server not found"
+    end
+
+    return M._parse_sharedserver_info(stdout)
+end
+
+-- Increment refcount using sharedserver
+M._sharedserver_incref = function(name, metadata)
+    local pid = vim.fn.getpid()
+    local args = {"admin", "incref", "--pid", tostring(pid), name}
+    if metadata then
+        table.insert(args, 4, "--metadata")
+        table.insert(args, 5, metadata)
+    end
+    local _, stderr, exit_code = M._call_sharedserver(args)
+
+    if exit_code ~= 0 then
+        return false, stderr or "incref failed"
+    end
+
+    return true, nil
+end
+
+-- Decrement refcount using sharedserver
+M._sharedserver_decref = function(name)
+    local pid = vim.fn.getpid()
+    local _, stderr, exit_code = M._call_sharedserver({"admin", "decref", "--pid", tostring(pid), name})
+
+    if exit_code ~= 0 then
+        return false, stderr or "decref failed"
+    end
+
+    return true, nil
+end
+
+-- ============================================================================
+-- End of sharedserver Integration
+-- ============================================================================
+
 
 -- Setup multiple servers at once
 M.setup = function(servers, opts)
@@ -79,21 +239,17 @@ M.register = function(name, opts)
         return
     end
 
-    -- Extract command name for default pidfile
-    local cmd_name = opts.command:match("([^/]+)$") or opts.command
-
     local defaults = {
         command = nil,  -- required
         args = {},
-        pidfile = vim.fn.stdpath("cache") .. "/" .. cmd_name .. ".lock.json",
         working_dir = nil,  -- optional, defaults to cwd
         lazy = false,  -- if true, only attach if already running, don't start
         on_start = nil,  -- optional callback(pid)
         on_exit = nil,   -- optional callback(exit_code)
+        idle_timeout = nil,  -- grace period duration (e.g., "30m", "1h", "2h30m")
     }
 
     opts = vim.tbl_extend("force", defaults, opts)
-    opts.pidfile = vim.fs.normalize(Path:new(opts.pidfile):normalize())
 
     if opts.working_dir then
         opts.working_dir = vim.fs.normalize(Path:new(opts.working_dir):normalize())
@@ -141,13 +297,17 @@ M.attach_if_running = function(name)
         return
     end
 
-    local lockdata = M._read_lock(server.config.pidfile)
-    if lockdata ~= nil then
-        -- Server is running, attach to it
-        lockdata.refcount = lockdata.refcount + 1
-        M._write_lock(server.config.pidfile, lockdata)
-        server.attached = true
-        M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "attach")
+    -- Use sharedserver to check and attach
+    if M._sharedserver_check(name) then
+        local success, err = M._sharedserver_incref(name)
+        if success then
+            server.attached = true
+            local info = M._sharedserver_info(name)
+            local pid = info and info.pid or "unknown"
+            M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. pid .. ")", vim.log.levels.INFO, "attach")
+        else
+            M._notify("sharedserver: failed to attach to '" .. name .. "': " .. (err or "unknown error"), vim.log.levels.ERROR, "error")
+        end
     end
     -- If not running, do nothing (lazy mode)
 end
@@ -167,15 +327,15 @@ M.start = function(name)
         return false
     end
 
-    -- Check if server is already running
-    local lockdata = M._read_lock(config.pidfile)
-    if lockdata ~= nil then
-        -- Increment refcount for this neovim instance
-        lockdata.refcount = lockdata.refcount + 1
-        M._write_lock(config.pidfile, lockdata)
-        server.attached = true
-        M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "attach")
-        return true
+    return M._start_with_sharedserver(name, server, config)
+end
+
+-- Start server using sharedserver
+M._start_with_sharedserver = function(name, server, config)
+    local sharedserver = M._find_sharedserver()
+    if not sharedserver then
+        M._notify("sharedserver: sharedserver not found", vim.log.levels.ERROR, "error")
+        return false
     end
 
     -- Create working directory if specified and doesn't exist
@@ -186,46 +346,59 @@ M.start = function(name)
         end
     end
 
-    -- Start the server
-    server.job = Job:new({
-        command = config.command,
-        args = config.args,
-        cwd = config.working_dir,
-        detached = true,
-        on_exit = function(job, exit_code)
-            -- Only notify on non-zero exit (unexpected)
-            if exit_code ~= 0 then
-                M._notify("sharedserver: '" .. name .. "' exited with code " .. exit_code, vim.log.levels.WARN, "error")
-            end
-            M._remove_lock(config.pidfile)
-            server.job = nil
-            server.attached = false
+    -- Set SHAREDSERVER_LOCKDIR environment variable
+    local lockdir = M._get_lockdir()
+    vim.fn.mkdir(lockdir, "p")
 
-            if config.on_exit then
-                config.on_exit(exit_code)
-            end
-        end,
+    local env = vim.tbl_extend("force", vim.fn.environ(), {
+        SHAREDSERVER_LOCKDIR = lockdir,
     })
 
-    if server.job ~= nil then
-        server.job:start()
-        local pid = server.job.pid
+    -- Build sharedserver use command (combines start-or-attach + incref)
+    -- sharedserver use [--grace-period <duration>] [--metadata <text>] <name> [-- <command> [args...]]
+    -- Note: --pid defaults to parent process (Neovim), so we don't need to specify it
+    local sharedserver_args = {"use"}
 
-        if pid then
-            M._notify("sharedserver: started '" .. name .. "' (pid " .. pid .. ")", vim.log.levels.INFO, "start")
-            M._write_lock(config.pidfile, {refcount = 1, pid = pid, started_at = os.time()})
-            server.attached = true
-
-            if config.on_start then
-                config.on_start(pid)
-            end
-            return true
-        else
-            M._notify("sharedserver: failed to start '" .. name .. "'", vim.log.levels.ERROR, "error")
-            return false
-        end
+    -- Add grace period if configured
+    if config.idle_timeout then
+        table.insert(sharedserver_args, "--grace-period")
+        table.insert(sharedserver_args, config.idle_timeout)
     end
-    return false
+
+    -- Add metadata (Neovim instance identification)
+    local pid = vim.fn.getpid()
+    table.insert(sharedserver_args, "--metadata")
+    table.insert(sharedserver_args, "nvim-" .. pid)
+
+    table.insert(sharedserver_args, name)
+    table.insert(sharedserver_args, "--")  -- Separator before command
+    table.insert(sharedserver_args, config.command)
+    for _, arg in ipairs(config.args) do
+        table.insert(sharedserver_args, arg)
+    end
+
+    -- Execute the use command (will either start server or just incref if already running)
+    local stdout, stderr, exit_code = M._call_sharedserver(sharedserver_args, {capture = true})
+
+    if exit_code == 0 then
+        server.attached = true
+        local info = M._sharedserver_info(name)
+        local server_pid = info and info.pid or "unknown"
+
+        -- Determine if we started a new server or attached to existing
+        -- Check for "Started" vs "Attached" in the sharedserver output
+        local action = stdout and stdout:match("Started") and "started" or "attached to"
+        M._notify("sharedserver: " .. action .. " '" .. name .. "' (pid " .. server_pid .. ")", vim.log.levels.INFO, action == "started" and "start" or "attach")
+
+        if config.on_start and info and info.pid and action == "started" then
+            config.on_start(info.pid)
+        end
+
+        return true
+    else
+        M._notify("sharedserver: failed to use '" .. name .. "': " .. (stderr or "unknown error"), vim.log.levels.ERROR, "error")
+        return false
+    end
 end
 
 -- Stop a named server
@@ -240,72 +413,20 @@ M.stop = function(name)
         return
     end
 
-    local config = server.config
-    local lockdata = M._read_lock(config.pidfile)
-    if lockdata == nil then
-        server.attached = false
-        return
+    -- Use sharedserver to decrement refcount
+    local success, err = M._sharedserver_decref(name)
+    if not success then
+        M._notify("sharedserver: failed to decref '" .. name .. "': " .. (err or "unknown error"), vim.log.levels.WARN, "error")
     end
-
-    -- Decrement refcount
-    lockdata.refcount = lockdata.refcount - 1
-
-    if lockdata.refcount == 0 then
-        -- Last neovim instance, kill the server
-        if server.job and server.job.handle then
-            server.job.handle:kill(15)  -- SIGTERM
-            M._notify("sharedserver: stopped '" .. name .. "' (pid " .. lockdata.pid .. ")", vim.log.levels.INFO, "stop")
-        end
-        M._remove_lock(config.pidfile)
-        server.attached = false
-    else
-        -- Other instances still using the server
-        M._write_lock(config.pidfile, lockdata)
-        server.attached = false
-    end
+    server.attached = false
+    -- Note: decref is called directly here. The watcher will automatically clean up
+    -- any dead clients, so even if this fails, the server will eventually detect it.
 end
 
 -- Stop all servers
 M.stop_all = function()
     for name, _ in pairs(M._servers) do
         M.stop(name)
-    end
-end
-
--- Internal lock file functions
-M._read_lock = function(pidfile)
-    if Path:new(pidfile):exists() then
-        local file = io.open(pidfile, "r")
-        if file ~= nil then
-            local content_str = file:read("*a")
-            file:close()
-            local ok, decoded = pcall(vim.fn.json_decode, content_str)
-            if ok then
-                return decoded
-            else
-                M._notify("sharedserver: failed to decode lockfile " .. pidfile, vim.log.levels.WARN, "error")
-            end
-        else
-            M._notify("sharedserver: failed to read lockfile " .. pidfile, vim.log.levels.WARN, "error")
-        end
-    end
-    return nil
-end
-
-M._write_lock = function(pidfile, lockdata)
-    local content_str = vim.fn.json_encode(lockdata)
-    local file = io.open(pidfile, "w")
-    if file ~= nil then
-        file:write(content_str)
-        file:close()
-    else
-        M._notify("sharedserver: failed to write lockfile " .. pidfile, vim.log.levels.ERROR, "error")
-    end
-end
-
-M._remove_lock = function(pidfile)
-    if Path:new(pidfile):exists() then
-        Path:new(pidfile):rm()
     end
 end
 
@@ -324,17 +445,22 @@ M.status = function(name)
         return {error = "Unknown server '" .. name .. "'"}
     end
 
-    local lockdata = M._read_lock(server.config.pidfile)
-    if lockdata then
+    -- Use sharedserver to get server info
+    local info, err = M._sharedserver_info(name)
+    if info then
+        -- Parse sharedserver info response
         return {
             name = name,
             running = true,
             attached = server.attached,
-            pid = lockdata.pid,
-            refcount = lockdata.refcount,
+            pid = info.pid,
+            refcount = info.refcount or 0,
             lazy = server.config.lazy,
+            state = info.state,  -- ACTIVE or GRACE
+            started_at = info.started_at,
         }
     else
+        -- Server not found
         return {
             name = name,
             running = false,
@@ -459,11 +585,15 @@ M._show_status_float = function(server_name)
                 table.insert(lines, string.format("  Refcount:   %d", status.refcount))
                 table.insert(lines, string.format("  Attached:   %s", status.attached and "yes" or "no"))
 
-                -- Calculate uptime
-                local lockdata = M._read_lock(server.config.pidfile)
-                if lockdata and lockdata.started_at then
-                    local uptime = os.time() - lockdata.started_at
+                -- Calculate uptime from sharedserver info
+                if status.started_at then
+                    local uptime = os.time() - status.started_at
                     table.insert(lines, string.format("  Uptime:     %s", M._format_uptime(uptime)))
+                end
+
+                -- Show grace period state if applicable
+                if status.state == "GRACE" then
+                    table.insert(lines, "  State:      GRACE PERIOD (shutting down)")
                 end
             end
 
@@ -474,7 +604,6 @@ M._show_status_float = function(server_name)
                     table.insert(lines, string.format("  Args:       %s", table.concat(server.config.args, " ")))
                 end
                 table.insert(lines, string.format("  Lazy:       %s", status.lazy and "yes" or "no"))
-                table.insert(lines, string.format("  Pidfile:    %s", server.config.pidfile))
             end
         end
 
@@ -506,12 +635,9 @@ M._show_status_float = function(server_name)
             local refs_str = status.running and tostring(status.refcount) or "-"
             local uptime_str = "-"
 
-            if status.running then
-                local lockdata = M._read_lock(server.config.pidfile)
-                if lockdata and lockdata.started_at then
-                    local uptime = os.time() - lockdata.started_at
-                    uptime_str = M._format_uptime(uptime)
-                end
+            if status.running and status.started_at then
+                local uptime = os.time() - status.started_at
+                uptime_str = M._format_uptime(uptime)
             end
 
             local lazy_indicator = status.lazy and " [lazy]" or ""
