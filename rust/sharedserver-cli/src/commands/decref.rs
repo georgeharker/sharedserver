@@ -71,11 +71,33 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
     let mut clients: sharedserver_core::ClientsLock =
         sharedserver_core::lockfile::read_json(&mut file)?;
 
-    // Remove client
-    clients.clients.remove(&client_pid);
+    // Remove client - only decrement refcount if client was actually in the map
+    let client_existed = clients.clients.remove(&client_pid).is_some();
+
+    if !client_existed {
+        // Drop the file to release the lock before returning error
+        drop(file);
+        bail!(
+            "Client {} was not attached to server '{}'",
+            client_pid,
+            name
+        );
+    }
 
     if clients.refcount > 0 {
         clients.refcount -= 1;
+    }
+
+    // Sanity check: refcount should equal number of clients
+    if clients.refcount != clients.clients.len() as u32 {
+        eprintln!(
+            "WARNING: refcount mismatch in {}: refcount={}, clients.len()={}",
+            name,
+            clients.refcount,
+            clients.clients.len()
+        );
+        // Fix the mismatch by using the actual client count
+        clients.refcount = clients.clients.len() as u32;
     }
 
     if clients.refcount == 0 {

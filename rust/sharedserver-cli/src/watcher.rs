@@ -16,7 +16,16 @@ pub fn run_watcher(name: &str, grace_period: &str) -> Result<()> {
     let grace_duration = parse_duration(grace_period)
         .with_context(|| format!("Invalid grace period: {}", grace_period))?;
 
-    let server = read_server_lock(name).context("Failed to read server lock in watcher")?;
+    // Try to read server lock, but if it fails (e.g., empty/corrupted), clean up and exit
+    let server = match read_server_lock(name) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Watcher: Failed to read server lock ({}), cleaning up", e);
+            let _ = delete_server_lock(name);
+            let _ = delete_clients_lock(name);
+            return Err(e.context("Failed to read server lock in watcher"));
+        }
+    };
     let server_pid = server.pid;
 
     let mut grace_timer: Option<Instant> = None;

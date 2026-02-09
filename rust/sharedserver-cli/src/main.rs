@@ -96,19 +96,18 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum AdminCommands {
-    /// Start a new server (low-level - use 'serverctl use' instead)
+    /// Start a new server with NO clients (low-level - use 'serverctl use' instead)
+    ///
+    /// This creates a server in a "waiting for clients" state (refcount=0).
+    /// The server will immediately enter its grace period unless a client
+    /// calls 'incref' to attach. Normal users should use 'serverctl use' instead,
+    /// which combines start+incref atomically.
     Start {
         /// Server name
         name: String,
         /// Grace period before shutdown when refcount reaches 0 (e.g., "5m", "1h", "30s")
         #[arg(long, default_value = "5m")]
         grace_period: String,
-        /// Client PID for the initial client (required - typically the calling process)
-        #[arg(long, required = true)]
-        pid: i32,
-        /// Optional client metadata
-        #[arg(long)]
-        metadata: Option<String>,
         /// Server command and arguments
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -172,10 +171,8 @@ fn main() -> Result<()> {
             AdminCommands::Start {
                 name,
                 grace_period,
-                pid,
-                metadata,
                 command,
-            } => commands::start::execute(&name, &grace_period, pid, metadata, &command),
+            } => commands::start::execute(&name, &grace_period, &command),
             AdminCommands::Stop { name, force } => commands::stop::execute(&name, force),
             AdminCommands::Incref {
                 name,

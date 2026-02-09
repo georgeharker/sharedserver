@@ -7,12 +7,28 @@ use sharedserver_core::{
 };
 use std::ffi::CString;
 
-pub fn execute(
+/// Start a server with no initial clients (refcount=0)
+pub fn execute(name: &str, grace_period: &str, command: &[String]) -> Result<()> {
+    execute_internal(name, grace_period, command, None)
+}
+
+/// Start a server with an initial client atomically (refcount=1)
+/// This is used by the `use` command to avoid the refcount=0 window
+pub fn execute_with_client(
     name: &str,
     grace_period: &str,
+    command: &[String],
     client_pid: i32,
     metadata: Option<String>,
+) -> Result<()> {
+    execute_internal(name, grace_period, command, Some((client_pid, metadata)))
+}
+
+fn execute_internal(
+    name: &str,
+    grace_period: &str,
     command: &[String],
+    initial_client: Option<(i32, Option<String>)>,
 ) -> Result<()> {
     // Validate grace period
     let _grace_duration = parse_duration(grace_period)
@@ -55,14 +71,16 @@ pub fn execute(
 
     write_server_lock(name, &server_lock).context("Failed to create server lockfile")?;
 
-    // Create clients lockfile with refcount=1 using the provided client PID
-    let mut clients_lock = ClientsLock::new();
-    clients_lock.refcount = 1;
-    clients_lock
-        .clients
-        .insert(client_pid, ClientInfo::new(metadata));
-
-    write_clients_lock(name, &clients_lock).context("Failed to create clients lockfile")?;
+    // Create clients lockfile if starting with an initial client (atomic operation)
+    // Otherwise, server starts with no clients (refcount=0)
+    if let Some((client_pid, metadata)) = initial_client {
+        let mut clients = ClientsLock::new();
+        clients.refcount = 1;
+        clients
+            .clients
+            .insert(client_pid, ClientInfo::new(metadata));
+        write_clients_lock(name, &clients).context("Failed to create clients lockfile")?;
+    }
 
     // Double fork strategy:
     // 1. First fork: Parent = serverctl (returns), Child = watcher
@@ -80,12 +98,24 @@ pub fn execute(
                     child: server_child,
                 }) => {
                     // Watcher process: update locks with real PIDs
-                    let mut server_lock =
-                        read_server_lock(name).expect("Failed to read server lock in watcher");
+                    let mut server_lock = match read_server_lock(name) {
+                        Ok(lock) => lock,
+                        Err(e) => {
+                            eprintln!("Watcher: Failed to read server lock ({}), cleaning up", e);
+                            let _ = delete_server_lock(name);
+                            let _ = delete_clients_lock(name);
+                            std::process::exit(1);
+                        }
+                    };
                     server_lock.pid = server_child.as_raw();
                     server_lock.watcher_pid = Some(watcher_pid);
-                    write_server_lock(name, &server_lock)
-                        .expect("Failed to update server lock with PIDs");
+
+                    if let Err(e) = write_server_lock(name, &server_lock) {
+                        eprintln!("Watcher: Failed to update server lock ({}), cleaning up", e);
+                        let _ = delete_server_lock(name);
+                        let _ = delete_clients_lock(name);
+                        std::process::exit(1);
+                    }
 
                     // Run watcher (never returns unless server dies)
                     if let Err(e) = crate::watcher::run_watcher(name, grace_period) {
@@ -146,6 +176,9 @@ pub fn execute(
                 }
 
                 if start.elapsed() > timeout {
+                    // Clean up lock files before bailing
+                    let _ = delete_server_lock(name);
+                    let _ = delete_clients_lock(name);
                     bail!("Timeout waiting for server to start");
                 }
 

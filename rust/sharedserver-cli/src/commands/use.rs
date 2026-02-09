@@ -39,9 +39,15 @@ pub fn execute(
                 );
             }
 
-            // Start the server with the client PID as the initial client
-            // The start command now returns after forking watcher+server
-            super::start::execute(name, grace_period, client_pid, metadata, command)?;
+            // Start the server atomically with this client as the initial client (refcount=1)
+            // This avoids the refcount=0 window that would trigger immediate grace period
+            super::start::execute_with_client(
+                name,
+                grace_period,
+                command,
+                client_pid,
+                metadata.clone(),
+            )?;
 
             // Read the server and clients info to get PID and refcount for output
             if let Ok(server_lock) = read_server_lock(name) {
