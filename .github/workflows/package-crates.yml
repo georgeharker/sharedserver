@@ -1,0 +1,67 @@
+name: Publish package (crates.io) - Reusable Workflow
+
+# This is a reusable workflow that can be called from other workflows
+# for custom crates.io publishing scenarios. The main publish.yml uses
+# the community action katyo/publish-crates@v2 for simplicity.
+#
+# Use this workflow when you need more control over the build/test process.
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: The name of the package to publish
+        type: string
+        required: true
+      environment-name:
+        description: The name of the GitHub environment
+        default: crates
+        type: string
+      rust-toolchain:
+        description: The Rust toolchain to use
+        default: stable
+        type: string
+      working-directory:
+        description: The working directory containing Cargo.toml
+        default: ./rust
+        type: string
+      run-tests:
+        description: Whether to run tests before publishing
+        default: true
+        type: boolean
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        description: An authentication token for crates.io
+        required: true
+
+jobs:
+  package:
+    name: Publish ${{inputs.package-name}} to crates.io
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{inputs.environment-name}}
+      url: https://crates.io/crates/${{inputs.package-name}}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{inputs.rust-toolchain}}
+          cache: true
+
+      - name: Verify package builds
+        working-directory: ${{inputs.working-directory}}
+        run: cargo build --package ${{inputs.package-name}} --release
+
+      - name: Run tests
+        if: ${{inputs.run-tests}}
+        working-directory: ${{inputs.working-directory}}
+        run: cargo test --package ${{inputs.package-name}}
+
+      - name: Publish to crates.io
+        working-directory: ${{inputs.working-directory}}
+        run: cargo publish --package ${{inputs.package-name}}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{secrets.CARGO_REGISTRY_TOKEN}}

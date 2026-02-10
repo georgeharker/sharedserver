@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Core library for managing shared servers with reference counting"
+repository = "https://github.com/georgeharker/shareserver"
+keywords = ["server", "process-management", "reference-counting"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "../README.md"
 
 [dependencies]
 serde.workspace = true

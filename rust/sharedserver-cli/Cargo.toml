@@ -4,11 +4,11 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "A lightweight tool for managing shared servers with reference counting"
-repository = "https://github.com/yourusername/shareserver"
+description = "A lightweight CLI tool for managing shared servers with reference counting"
+repository = "https://github.com/georgeharker/shareserver"
 readme = "../README.md"
-keywords = ["server", "process-management", "neovim"]
-categories = ["command-line-utilities"]
+keywords = ["server", "process-management", "neovim", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "sharedserver"
