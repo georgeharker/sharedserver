@@ -37,14 +37,20 @@ The binary will be available at `rust/target/release/sharedserver`. The plugin w
 
 ### Installation via Cargo
 
-The simplest way to install `sharedserver`:
+The simplest way to install `sharedserver` from crates.io:
 
 ```bash
-# 1-line install from repository root
-cargo install --path rust/sharedserver
+cargo install sharedserver-cli
 ```
 
-This installs the binary to `~/.cargo/bin/sharedserver`, which should be in your PATH.
+Or install from the repository:
+
+```bash
+# From repository root
+cargo install --path rust/sharedserver-cli
+```
+
+Both methods install the binary to `~/.cargo/bin/sharedserver`, which should be in your PATH.
 
 ### Optional: System-wide Installation
 
@@ -89,8 +95,9 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-    "yourusername/shareserver",
+    "georgeharker/shareserver",
     dependencies = { "nvim-lua/plenary.nvim" },
+    build = "cargo install sharedserver-cli --force",
     config = function()
         require("sharedserver").setup({
             chroma = {
@@ -113,6 +120,7 @@ Or for local development:
 {
     dir = "~/Development/neovim-plugins/shareserver",
     dependencies = { "nvim-lua/plenary.nvim" },
+    build = "cargo install --path rust/sharedserver-cli --force",
     config = function()
         require("sharedserver").setup({
             -- your config
