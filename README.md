@@ -1,4 +1,4 @@
-# sharedserver.nvim
+# shareserver
 
 A generic Neovim plugin for keeping server processes alive across multiple Neovim instances using reference counting with automatic grace period support.
 
@@ -29,7 +29,7 @@ A generic Neovim plugin for keeping server processes alive across multiple Neovi
 The plugin requires building the Rust-based `sharedserver` binary:
 
 ```bash
-cd sharedserver.nvim/rust
+cd shareserver/rust
 cargo build --release
 ```
 
@@ -89,7 +89,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-    "yourusername/sharedserver.nvim",
+    "yourusername/shareserver",
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
         require("sharedserver").setup({
@@ -111,7 +111,7 @@ Or for local development:
 
 ```lua
 {
-    dir = "~/Development/neovim-plugins/sharedserver.nvim",
+    dir = "~/Development/neovim-plugins/shareserver",
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
         require("sharedserver").setup({

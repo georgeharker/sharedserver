@@ -44,5 +44,5 @@ For most users, prefer the new high-level commands:
 - Use `serverctl use <name> -- <command>` to start/attach
 - Use `serverctl unuse <name>` to detach
 
-[Unreleased]: https://github.com/yourusername/sharedserver.nvim/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/yourusername/sharedserver.nvim/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/yourusername/shareserver/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yourusername/shareserver/compare/v0.1.0...v0.2.0

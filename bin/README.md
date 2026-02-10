@@ -1,6 +1,6 @@
-# Shell Tools for sharedserver.nvim
+# Shell Tools for shareserver
 
-This directory contains shell tools that allow non-Neovim processes to participate in the sharedserver.nvim lifecycle with **grace period support**.
+This directory contains shell tools that allow non-Neovim processes to participate in the shareserver lifecycle with **grace period support**.
 
 ## Overview
 
