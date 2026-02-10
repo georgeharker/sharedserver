@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
-use sharedserver_core::{
+use sharedserver::core::{
     clients_lock_exists, delete_clients_lock, delete_server_lock, is_process_alive, parse_duration,
     read_server_lock, ClientsLock,
 };
@@ -90,7 +90,7 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
         return false;
     }
 
-    let clients_path = match sharedserver_core::lockfile::clients_lockfile_path(name) {
+    let clients_path = match sharedserver::core::lockfile::clients_lockfile_path(name) {
         Ok(p) => p,
         Err(_) => return false,
     };
@@ -111,7 +111,7 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
     }
 
     // Read clients
-    let mut clients: ClientsLock = match sharedserver_core::lockfile::read_json(&mut file) {
+    let mut clients: ClientsLock = match sharedserver::core::lockfile::read_json(&mut file) {
         Ok(c) => c,
         Err(_) => {
             drop(file);
@@ -153,7 +153,7 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
     }
 
     // Otherwise, update the clients file with cleaned-up data
-    if sharedserver_core::lockfile::write_json(&mut file, &clients).is_err() {
+    if sharedserver::core::lockfile::write_json(&mut file, &clients).is_err() {
         drop(file);
         return false;
     }

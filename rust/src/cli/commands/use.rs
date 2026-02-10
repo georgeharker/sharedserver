@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use sharedserver_core::{get_server_state, read_clients_lock, read_server_lock, ServerState};
+use sharedserver::core::{get_server_state, read_clients_lock, read_server_lock, ServerState};
 
 use crate::output::{
     format_pid, format_refcount, format_server_name, print_success, print_warning,

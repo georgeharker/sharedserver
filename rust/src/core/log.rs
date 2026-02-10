@@ -40,7 +40,7 @@ impl InvocationLog {
 
 /// Get path to invocation log
 pub fn invocation_log_path(name: &str) -> Result<PathBuf> {
-    let dir = crate::lockfile::ensure_lockfile_dir()?;
+    let dir = super::lockfile::ensure_lockfile_dir()?;
     Ok(dir.join(format!("{}.invocations.log", name)))
 }
 

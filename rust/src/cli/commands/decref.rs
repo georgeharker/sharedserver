@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use sharedserver_core::{delete_clients_lock, get_server_state, ServerState};
+use sharedserver::core::{delete_clients_lock, get_server_state, ServerState};
 
 use crate::output::{format_refcount, format_server_name, print_success, print_warning};
 
@@ -15,9 +15,9 @@ pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
             let new_refcount = decrement_refcount(name, client_pid)?;
 
             // Log success
-            let _ = sharedserver_core::log::log_invocation(
+            let _ = sharedserver::core::log::log_invocation(
                 name,
-                &sharedserver_core::log::InvocationLog::success(
+                &sharedserver::core::log::InvocationLog::success(
                     "decref",
                     &[name.to_string()],
                     Some(serde_json::json!({
@@ -54,7 +54,7 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
     use std::fs::OpenOptions;
     use std::os::unix::io::AsRawFd;
 
-    let clients_path = sharedserver_core::lockfile::clients_lockfile_path(name)?;
+    let clients_path = sharedserver::core::lockfile::clients_lockfile_path(name)?;
 
     // Open and lock the file manually so we can control when it's closed
     let mut file = OpenOptions::new()
@@ -68,8 +68,8 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
     flock(file.as_raw_fd(), FlockArg::LockExclusive)
         .with_context(|| format!("Failed to acquire lock on: {:?}", clients_path))?;
 
-    let mut clients: sharedserver_core::ClientsLock =
-        sharedserver_core::lockfile::read_json(&mut file)?;
+    let mut clients: sharedserver::core::ClientsLock =
+        sharedserver::core::lockfile::read_json(&mut file)?;
 
     // Remove client - only decrement refcount if client was actually in the map
     let client_existed = clients.clients.remove(&client_pid).is_some();
@@ -107,7 +107,7 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
         Ok(0)
     } else {
         // Update clients.json with new refcount
-        sharedserver_core::lockfile::write_json(&mut file, &clients)?;
+        sharedserver::core::lockfile::write_json(&mut file, &clients)?;
         Ok(clients.refcount)
     }
 }

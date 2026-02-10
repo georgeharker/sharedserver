@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::*;
-use sharedserver_core::{get_server_state, read_server_lock, ServerState};
+use sharedserver::core::{get_server_state, read_server_lock, ServerState};
 
 use crate::output::{format_pid, format_server_name};
 

@@ -1,10 +1,10 @@
 # Publishing to crates.io
 
-This document describes how to publish the `shareserver` Rust crates to crates.io.
+This document describes how to publish the `sharedserver` Rust package to crates.io.
 
 ## Overview
 
-The project uses GitHub Actions to automatically publish both crates (`sharedserver-core` and `sharedserver-cli`) to crates.io when you create a new release tag.
+The project uses GitHub Actions to automatically publish `sharedserver` to crates.io when you create a new release tag.
 
 ## Workflow Design
 
@@ -59,28 +59,35 @@ For additional protection (recommended for production):
 
 ### Automatic Publishing (Recommended)
 
-1. Update version in `rust/Cargo.toml`:
-   ```toml
-   [workspace.package]
-   version = "0.3.0"  # Bump this
+1. Use the release script to bump version and create tag:
+   ```bash
+   ./scripts/release.sh 0.4.0
    ```
 
-2. Commit your changes:
+   Or manually:
+   
+   a. Update version in `rust/Cargo.toml`:
+   ```toml
+   [package]
+   version = "0.4.0"  # Bump this
+   ```
+
+   b. Commit your changes:
    ```bash
    git add rust/Cargo.toml
-   git commit -m "chore: bump version to 0.3.0"
+   git commit -m "chore: bump version to 0.4.0"
    ```
 
-3. Create and push a tag:
+   c. Create and push a tag:
    ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.4.0
+   git push origin v0.4.0
    ```
 
-4. GitHub Actions will automatically:
-   - Publish `sharedserver-core` first
-   - Then publish `sharedserver-cli` (depends on core)
-   - Create links to crates.io in the workflow summary
+2. GitHub Actions will automatically:
+   - Build and test the package
+   - Publish `sharedserver` to crates.io
+   - Create a link to crates.io in the workflow summary
 
 ### Manual Publishing
 
@@ -90,13 +97,8 @@ You can also trigger publishing manually via GitHub UI:
 2. Click "Run workflow"
 3. Select:
    - Branch: `main` (or your desired branch)
-   - Package: `all`, `sharedserver-core`, or `sharedserver-cli`
    - Dry run: `false` (or `true` to test without publishing)
 4. Click "Run workflow"
-
-## Package Publishing Order
-
-**IMPORTANT**: `sharedserver-core` must be published before `sharedserver-cli` because the CLI depends on the core library. The workflow enforces this with `needs: publish-core`.
 
 ## Troubleshooting
 
@@ -108,13 +110,9 @@ You've already published this version. Bump the version number in `rust/Cargo.to
 
 Check that `CARGO_REGISTRY_TOKEN` is set correctly in GitHub Secrets.
 
-### "crate not found: sharedserver-core"
-
-If `sharedserver-cli` fails to publish because it can't find `sharedserver-core`, the core package might not have finished publishing to crates.io yet. Wait a few minutes and try again.
-
 ### "no such file or directory"
 
-Check the `path` parameter in the workflow matches your actual directory structure (`./rust/sharedserver-core` and `./rust/sharedserver-cli`).
+Check the `path` parameter in the workflow matches your actual directory structure (`./rust`).
 
 ## Advanced: Using the Reusable Workflow
 
@@ -125,7 +123,7 @@ jobs:
   publish-custom:
     uses: ./.github/workflows/package-crates.yml
     with:
-      package-name: sharedserver-core
+      package-name: sharedserver
       rust-toolchain: stable
       working-directory: ./rust
       run-tests: true

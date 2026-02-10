@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::*;
 use serde_json::json;
-use sharedserver_core::{get_server_state, read_clients_lock, read_server_lock, ServerState};
+use sharedserver::core::{get_server_state, read_clients_lock, read_server_lock, ServerState};
 
 use crate::output::{
     format_duration, format_pid, format_refcount, format_server_name, format_server_state,
@@ -83,7 +83,7 @@ pub fn execute(name: &str, json_output: bool) -> Result<()> {
         println!("Command: {}", server_lock.command.join(" ").bright_white());
 
         // Parse grace period string and format duration
-        if let Ok(grace_duration) = sharedserver_core::parse_duration(&server_lock.grace_period) {
+        if let Ok(grace_duration) = sharedserver::core::parse_duration(&server_lock.grace_period) {
             println!("Grace Period: {}", format_duration(grace_duration));
         } else {
             println!("Grace Period: {}", server_lock.grace_period);

@@ -1,17 +1,33 @@
-[workspace]
-members = ["sharedserver-cli", "sharedserver-core"]
-resolver = "2"
-
-[workspace.package]
-version = "0.3.7"
+[package]
+name = "sharedserver"
+version = "0.4.0"
 edition = "2021"
 authors = ["SharedServer Contributors"]
 license = "MIT"
+description = "A lightweight CLI tool and library for managing shared servers with reference counting"
+repository = "https://github.com/georgeharker/shareserver"
+readme = "../README.md"
+keywords = ["server", "process-management", "neovim", "cli", "reference-counting"]
+categories = ["command-line-utilities", "development-tools"]
 
-[workspace.dependencies]
+[lib]
+name = "sharedserver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sharedserver"
+path = "src/main.rs"
+
+[dependencies]
+# Core dependencies
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 nix = { version = "0.27", features = ["fs", "process", "signal"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"
+
+# CLI-specific dependencies
+clap = { version = "4.4", features = ["derive", "color", "help", "usage", "error-context"] }
+clap_complete = "4.4"
+colored = "2.1"

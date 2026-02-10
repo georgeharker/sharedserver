@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use sharedserver_core::{
+use sharedserver::core::{
     clients_lock_exists, get_server_state, write_clients_lock, ClientInfo, ClientsLock, ServerState,
 };
 
@@ -21,9 +21,9 @@ pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result
             let new_refcount = increment_refcount(name, metadata, client_pid)?;
 
             // Log success
-            let _ = sharedserver_core::log::log_invocation(
+            let _ = sharedserver::core::log::log_invocation(
                 name,
-                &sharedserver_core::log::InvocationLog::success(
+                &sharedserver::core::log::InvocationLog::success(
                     "incref",
                     &[name.to_string()],
                     Some(serde_json::json!({
@@ -44,7 +44,7 @@ pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result
 }
 
 fn increment_refcount(name: &str, metadata: Option<String>, client_pid: i32) -> Result<u32> {
-    let clients_path = sharedserver_core::lockfile::clients_lockfile_path(name)?;
+    let clients_path = sharedserver::core::lockfile::clients_lockfile_path(name)?;
 
     if !clients_lock_exists(name) {
         // Grace period: recreate clients.json
@@ -59,14 +59,14 @@ fn increment_refcount(name: &str, metadata: Option<String>, client_pid: i32) -> 
     }
 
     // Active state: increment existing refcount
-    sharedserver_core::lockfile::with_lock(&clients_path, |file| {
-        let mut clients: ClientsLock = sharedserver_core::lockfile::read_json(file)?;
+    sharedserver::core::lockfile::with_lock(&clients_path, |file| {
+        let mut clients: ClientsLock = sharedserver::core::lockfile::read_json(file)?;
         clients.refcount += 1;
         clients
             .clients
             .insert(client_pid, ClientInfo::new(metadata));
 
-        sharedserver_core::lockfile::write_json(file, &clients)?;
+        sharedserver::core::lockfile::write_json(file, &clients)?;
         Ok(clients.refcount)
     })
     .context("Failed to increment refcount")

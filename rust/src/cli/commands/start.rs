@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use nix::unistd::{fork, setsid, ForkResult};
-use sharedserver_core::{
+use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, parse_duration,
     read_server_lock, server_lock_exists, write_clients_lock, write_server_lock, ClientInfo,
     ClientsLock, ServerLock, ServerState,
@@ -158,9 +158,9 @@ fn execute_internal(
                         && server_lock.pid != std::process::id() as i32
                     {
                         // Successfully started
-                        let _ = sharedserver_core::log::log_invocation(
+                        let _ = sharedserver::core::log::log_invocation(
                             name,
-                            &sharedserver_core::log::InvocationLog::success(
+                            &sharedserver::core::log::InvocationLog::success(
                                 "start",
                                 &[name.to_string()],
                                 Some(serde_json::json!({

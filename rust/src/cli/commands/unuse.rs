@@ -1,6 +1,6 @@
 use crate::output::{format_server_name, print_warning};
 use anyhow::{bail, Result};
-use sharedserver_core::{get_server_state, ServerState};
+use sharedserver::core::{get_server_state, ServerState};
 
 /// Get the client PID: use provided PID, or default to parent process PID
 fn get_client_pid(pid: Option<i32>) -> i32 {

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::*;
-use sharedserver_core::{get_server_state, read_clients_lock, read_server_lock};
+use sharedserver::core::{get_server_state, read_clients_lock, read_server_lock};
 use std::fs;
 
 use crate::output::{
@@ -8,7 +8,7 @@ use crate::output::{
 };
 
 pub fn execute() -> Result<()> {
-    let lockdir = sharedserver_core::lockfile::lockfile_dir()?;
+    let lockdir = sharedserver::core::lockfile::lockfile_dir()?;
 
     if !lockdir.exists() {
         println!("{}", "No servers found".dimmed());
@@ -33,7 +33,7 @@ pub fn execute() -> Result<()> {
                     .to_string();
 
                 if let Ok(state) = get_server_state(&name) {
-                    let server_info = if state != sharedserver_core::ServerState::Stopped {
+                    let server_info = if state != sharedserver::core::ServerState::Stopped {
                         read_server_lock(&name).ok()
                     } else {
                         None
@@ -71,7 +71,7 @@ pub fn execute() -> Result<()> {
             .unwrap_or_else(|| "-".dimmed().to_string());
 
         // Read refcount and clients from ClientsLock if the server is active
-        let (refcount, clients) = if state == sharedserver_core::ServerState::Active {
+        let (refcount, clients) = if state == sharedserver::core::ServerState::Active {
             if let Ok(clients_lock) = read_clients_lock(&name) {
                 let client_list: Vec<String> =
                     clients_lock.clients.keys().map(|k| k.to_string()).collect();

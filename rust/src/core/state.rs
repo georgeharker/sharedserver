@@ -1,5 +1,5 @@
-use crate::health::is_process_alive;
-use crate::lockfile::{clients_lock_exists, read_server_lock, server_lock_exists};
+use super::health::is_process_alive;
+use super::lockfile::{clients_lock_exists, read_server_lock, server_lock_exists};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

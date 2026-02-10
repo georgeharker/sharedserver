@@ -1,5 +1,5 @@
 use colored::*;
-use sharedserver_core::ServerState;
+use sharedserver::core::ServerState;
 use std::time::{Duration, SystemTime};
 
 /// Print a success message with a green checkmark

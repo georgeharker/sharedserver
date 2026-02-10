@@ -368,26 +368,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "sharedserver-cli"
-version = "0.2.0"
+name = "sharedserver"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
  "clap_complete",
  "colored",
- "nix",
- "serde",
- "serde_json",
- "sharedserver-core",
-]
-
-[[package]]
-name = "sharedserver-core"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "chrono",
  "libc",
  "nix",
  "serde",

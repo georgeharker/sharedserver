@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 pub fn execute(name: &str, count: usize) -> Result<()> {
-    let logs = sharedserver_core::log::read_recent_invocations(name, count)?;
+    let logs = sharedserver::core::log::read_recent_invocations(name, count)?;
 
     if logs.is_empty() {
         println!("No invocations logged for server '{}'", name);
