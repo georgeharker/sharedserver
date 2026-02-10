@@ -11,3 +11,4 @@
 # Compiled binaries
 bin/sharedserver-watcher
 bin/*.o
+/.codecompanion
