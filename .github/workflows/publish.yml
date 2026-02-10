@@ -29,6 +29,7 @@ jobs:
   publish-core:
     name: Publish sharedserver-core
     runs-on: ubuntu-latest
+    environment: crates
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.package == 'all' || inputs.package == 'sharedserver-core') && !inputs.dry-run)
@@ -46,6 +47,7 @@ jobs:
   publish-cli:
     name: Publish sharedserver-cli
     runs-on: ubuntu-latest
+    environment: crates
     needs: publish-core
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
