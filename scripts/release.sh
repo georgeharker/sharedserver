@@ -117,9 +117,15 @@ fi
 
 # Path to workspace Cargo.toml
 CARGO_TOML="rust/Cargo.toml"
+CLI_CARGO_TOML="rust/sharedserver-cli/Cargo.toml"
 
 if [[ ! -f "$CARGO_TOML" ]]; then
 	print_error "Could not find $CARGO_TOML"
+	exit 1
+fi
+
+if [[ ! -f "$CLI_CARGO_TOML" ]]; then
+	print_error "Could not find $CLI_CARGO_TOML"
 	exit 1
 fi
 
@@ -133,11 +139,12 @@ if [[ "$DRY_RUN" == true ]]; then
 	echo
 	echo "Would perform the following actions:"
 	echo "  1. Update version in $CARGO_TOML: $CURRENT_VERSION -> $VERSION_NUMBER"
-	echo "  2. Git add: $CARGO_TOML"
-	echo "  3. Git commit: 'chore: bump version to $VERSION_NUMBER'"
-	echo "  4. Git tag: $GIT_TAG"
-	echo "  5. Git push: origin HEAD"
-	echo "  6. Git push: origin $GIT_TAG"
+	echo "  2. Update sharedserver-core dependency version in $CLI_CARGO_TOML: $CURRENT_VERSION -> $VERSION_NUMBER"
+	echo "  3. Git add: $CARGO_TOML $CLI_CARGO_TOML"
+	echo "  4. Git commit: 'chore: bump version to $VERSION_NUMBER'"
+	echo "  5. Git tag: $GIT_TAG"
+	echo "  6. Git push: origin HEAD"
+	echo "  7. Git push: origin $GIT_TAG"
 	exit 0
 fi
 
@@ -145,9 +152,10 @@ fi
 echo
 print_warn "This will:"
 echo "  1. Update version in $CARGO_TOML"
-echo "  2. Commit the change"
-echo "  3. Create tag $GIT_TAG"
-echo "  4. Push to remote (origin)"
+echo "  2. Update sharedserver-core dependency version in $CLI_CARGO_TOML"
+echo "  3. Commit the changes"
+echo "  4. Create tag $GIT_TAG"
+echo "  5. Push to remote (origin)"
 echo
 read -p "Proceed? (y/N) " -n 1 -r
 echo
@@ -173,11 +181,29 @@ if [[ "$NEW_VERSION" != "$VERSION_NUMBER" ]]; then
 	exit 1
 fi
 
-print_info "Version updated successfully"
+print_info "Workspace version updated successfully"
+
+# Update sharedserver-core dependency version in CLI Cargo.toml
+print_info "Updating sharedserver-core dependency version in $CLI_CARGO_TOML..."
+if [[ "$OSTYPE" == "darwin"* ]]; then
+	# macOS
+	sed -i '' "s/sharedserver-core = { version = \"[^\"]*\"/sharedserver-core = { version = \"$VERSION_NUMBER\"/" "$CLI_CARGO_TOML"
+else
+	# Linux
+	sed -i "s/sharedserver-core = { version = \"[^\"]*\"/sharedserver-core = { version = \"$VERSION_NUMBER\"/" "$CLI_CARGO_TOML"
+fi
+
+# Verify the change
+if ! grep -q "sharedserver-core = { version = \"$VERSION_NUMBER\"" "$CLI_CARGO_TOML"; then
+	print_error "Failed to update sharedserver-core dependency version in $CLI_CARGO_TOML"
+	exit 1
+fi
+
+print_info "CLI dependency version updated successfully"
 
 # Git operations
 print_info "Staging changes..."
-git add "$CARGO_TOML"
+git add "$CARGO_TOML" "$CLI_CARGO_TOML"
 
 print_info "Creating commit..."
 git commit -m "chore: bump version to $VERSION_NUMBER"

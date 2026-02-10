@@ -15,7 +15,7 @@ name = "sharedserver"
 path = "src/main.rs"
 
 [dependencies]
-sharedserver-core = { path = "../sharedserver-core" }
+sharedserver-core = { version = "0.3.6", path = "../sharedserver-core" }
 anyhow.workspace = true
 clap = { version = "4.4", features = ["derive", "color", "help", "usage", "error-context"] }
 clap_complete = "4.4"
