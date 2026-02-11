@@ -1,5 +1,7 @@
 # shareserver
 
+[![crates][crates]](https://crates.io/crates/sharedserver)
+
 A generic Neovim plugin for keeping server processes alive across multiple Neovim instances using reference counting with automatic grace period support.
 
 ## Features
@@ -649,3 +651,5 @@ print("PID:", info.pid, "Status:", info.status, "Refcount:", info.refcount)
 ## License
 
 MIT
+
+[crates]: https://img.shields.io/crates/v/sharedserver.svg
