@@ -18,6 +18,101 @@ A generic Neovim plugin for keeping server processes alive across multiple Neovi
 - **Built-in commands**: User commands are automatically created for easy server management
 - **Robust state management**: Two-lockfile architecture with stale lock cleanup and atomic operations
 
+## Why Use SharedServer?
+
+SharedServer solves a common problem: **efficiently managing long-running service processes across multiple instances of your editor or between different tools**.
+
+### Key Benefits
+
+**🔄 Reuse Servers Between Processes**
+- Start a service once (e.g., ChromaDB, Redis, development server)
+- Share it across multiple Neovim instances
+- Automatic reference counting ensures it stays alive as long as any instance needs it
+
+**⏱️ Smart Lifecycle Management**
+- Servers automatically shut down when no longer needed
+- Configurable grace periods keep services warm for quick restarts
+- Dead client detection prevents resource leaks from crashed processes
+
+**🎯 Built for Neovim**
+- Zero-configuration lifecycle hooks (`VimEnter`/`VimLeave`)
+- Automatic attachment to existing servers
+- Rich status monitoring with `:ServerStatus`
+- Optional lazy loading for expensive services
+
+**🔧 Beyond Neovim**
+- Shell script integration via `sharedserver` CLI
+- Use it as a service wrapper in any program
+- Replace manual process management or shell scripts
+- Works standalone or integrated with your editor
+
+### Example Use Cases
+
+**Replace manual server management:**
+```bash
+# Instead of this fragile pattern:
+pkill -f "python -m http.server" || true
+python -m http.server 8000 &
+# Do your work...
+pkill -f "python -m http.server"
+
+# Use sharedserver:
+sharedserver use webserver -- python -m http.server 8000
+# Do your work...
+sharedserver unuse webserver  # Server stays alive if other clients need it
+```
+
+**Share expensive services:**
+```lua
+-- ChromaDB takes 10s to start, costs 2GB RAM
+-- Without sharedserver: Every Neovim instance starts its own (slow, wasteful)
+-- With sharedserver: One instance shared by all, 30min grace period after last editor closes
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run", "--path", "~/.local/share/chromadb" },
+        idle_timeout = "30m",
+    }
+})
+```
+
+**Lazy-load heavy services:**
+```lua
+-- Don't start expensive ML inference server until explicitly needed
+require("sharedserver").setup({
+    llm_server = {
+        command = "ollama",
+        args = { "serve" },
+        lazy = true,  -- Only attach if already running
+    }
+})
+-- Start manually when needed: :ServerStart llm_server
+```
+
+### Why Not Just Use systemd/launchd?
+
+System services (systemd, launchd, etc.) are great for **always-on** infrastructure, but SharedServer is designed for **on-demand development services**:
+
+| System Service | SharedServer |
+|----------------|--------------|
+| Always running, even when unused | Starts when needed, stops when done |
+| Requires root/system configuration | User-space, no sudo needed |
+| Global configuration files | Per-project configuration in your editor config |
+| Manual start/stop commands | Automatic lifecycle tied to your workflow |
+| One instance system-wide | Multiple isolated instances per project possible |
+
+**When to use system services:**
+- Production servers
+- Always-on infrastructure (databases, web servers)
+- Services needed by multiple users
+
+**When to use SharedServer:**
+- Development databases (ChromaDB, Redis for testing)
+- Project-specific dev servers
+- Heavy services you only need occasionally
+- Services tied to your editor workflow
+- When you want automatic cleanup after work
+
 ## Requirements
 
 - Neovim 0.5+
@@ -37,9 +132,9 @@ cargo build --release
 
 The binary will be available at `rust/target/release/sharedserver`. The plugin will automatically find it in this location.
 
-### Installation via Cargo
+### Installation via Cargo (Recommended)
 
-The simplest way to install `sharedserver` from crates.io:
+The simplest way to install `sharedserver` for use with the Neovim plugin:
 
 ```bash
 cargo install sharedserver
@@ -52,11 +147,11 @@ Or install from the repository:
 cargo install --path rust
 ```
 
-Both methods install the binary to `~/.cargo/bin/sharedserver`, which should be in your PATH.
+Both methods install the binary to `~/.cargo/bin/sharedserver`, which should be in your PATH. This is sufficient for Neovim plugin usage.
 
-### Optional: System-wide Installation
+### System-wide Installation (Optional)
 
-To install the binary system-wide for use outside Neovim:
+Install system-wide if you want to use `sharedserver` **outside of Neovim** (e.g., in shell scripts, cron jobs, or other programs):
 
 ```bash
 # Linux
@@ -68,6 +163,11 @@ sudo cp rust/target/release/sharedserver /opt/homebrew/bin/
 # User-local installation (no sudo)
 cp rust/target/release/sharedserver ~/.local/bin/
 ```
+
+**Why system-wide?**
+- Use `sharedserver` CLI from any shell script
+- Integrate with systemd, cron, or other system services
+- Share servers between different tools (not just Neovim)
 
 The plugin searches for `sharedserver` in the following order:
 1. `<plugin-dir>/rust/target/release/sharedserver` (default after build)
