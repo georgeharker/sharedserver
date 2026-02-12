@@ -332,6 +332,11 @@ For each server:
     - Table format: `{KEY = "value", KEY2 = "value2"}`
     - Variables are **added to** (not replacing) the inherited environment
     - Useful for: API keys, debug flags, custom paths, feature toggles
+- **log_file** (optional, default: `nil`): Path to log file for server stdout/stderr
+    - When specified, server output is redirected to this file for debugging
+    - stdin is always redirected to `/dev/null` (required for detached servers)
+    - Useful for: debugging server startup issues, monitoring server output
+    - Example: `log_file = "/tmp/myserver.log"`
 - **lazy** (optional, default: `false`): If `true`, only attach to server if already running, don't start a new one
 - **working_dir** (optional, default: `nil`): Working directory for the server
 - **idle_timeout** (optional, default: `nil`): Grace period duration after last client disconnects (e.g., `"30m"`, `"1h"`, `"2h30m"`)
@@ -374,6 +379,7 @@ require("sharedserver").setup({
             LOG_LEVEL = "info",
             CUSTOM_PATH = "/opt/myapp"
         },
+        log_file = "/tmp/myapi.log",  -- Optional: capture server output
     },
 })
 ```
@@ -386,6 +392,7 @@ The server receives all variables from the parent process plus your custom ones.
 sharedserver use myserver \
     --env DEBUG=1 \
     --env API_KEY=secret123 \
+    --log-file /tmp/myserver.log \
     myserver -- /path/to/server
 ```
 

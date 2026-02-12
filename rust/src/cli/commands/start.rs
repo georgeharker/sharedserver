@@ -6,7 +6,6 @@ use sharedserver::core::{
     ClientsLock, ServerLock, ServerState,
 };
 use std::collections::HashMap;
-use std::ffi::CString;
 
 /// Start a server with no initial clients (refcount=0)
 pub fn execute(
@@ -14,8 +13,9 @@ pub fn execute(
     grace_period: &str,
     env_vars: &[String],
     command: &[String],
+    log_file: Option<&str>,
 ) -> Result<()> {
-    execute_internal(name, grace_period, env_vars, command, None)
+    execute_internal(name, grace_period, env_vars, command, None, log_file)
 }
 
 /// Start a server with an initial client atomically (refcount=1)
@@ -27,6 +27,7 @@ pub fn execute_with_client(
     command: &[String],
     client_pid: i32,
     metadata: Option<String>,
+    log_file: Option<&str>,
 ) -> Result<()> {
     execute_internal(
         name,
@@ -34,6 +35,7 @@ pub fn execute_with_client(
         env_vars,
         command,
         Some((client_pid, metadata)),
+        log_file,
     )
 }
 
@@ -43,6 +45,7 @@ fn execute_internal(
     env_vars: &[String],
     command: &[String],
     initial_client: Option<(i32, Option<String>)>,
+    log_file: Option<&str>,
 ) -> Result<()> {
     // Validate grace period
     let _grace_duration = parse_duration(grace_period)
@@ -141,9 +144,62 @@ fn execute_internal(
                 }
                 Ok(ForkResult::Child) => {
                     // Grandchild: become the actual server process
+
+                    // Redirect stdin to /dev/null (required for servers like workspace-mcp)
+                    // stdout/stderr go to log_file if provided, otherwise /dev/null
+                    use std::fs::OpenOptions;
+                    use std::os::unix::io::AsRawFd;
+
+                    // stdin always goes to /dev/null
+                    if let Ok(devnull) = OpenOptions::new().read(true).open("/dev/null") {
+                        let fd = devnull.as_raw_fd();
+                        unsafe {
+                            libc::dup2(fd, 0); // stdin
+                        }
+                    }
+
+                    // stdout/stderr: log_file or /dev/null
+                    if let Some(log_path) = log_file {
+                        // Redirect to log file
+                        if let Ok(logfile) =
+                            OpenOptions::new().create(true).append(true).open(log_path)
+                        {
+                            let fd = logfile.as_raw_fd();
+                            unsafe {
+                                libc::dup2(fd, 1); // stdout
+                                libc::dup2(fd, 2); // stderr
+                            }
+                        }
+                    } else {
+                        // Redirect to /dev/null
+                        if let Ok(devnull) = OpenOptions::new().write(true).open("/dev/null") {
+                            let fd = devnull.as_raw_fd();
+                            unsafe {
+                                libc::dup2(fd, 1); // stdout
+                                libc::dup2(fd, 2); // stderr
+                            }
+                        }
+                    }
+
                     // Exec into server command (never returns)
                     if let Err(e) = exec_server(command, env_vars) {
-                        eprintln!("Failed to exec server: {:#}", e);
+                        // Log error to server-specific log file if available
+                        if let Some(error_log) = log_file {
+                            if let Ok(mut log) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(error_log)
+                            {
+                                use std::io::Write;
+                                let _ = writeln!(
+                                    log,
+                                    "[{}] ERROR: Failed to exec server '{}': {:#}",
+                                    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                                    name,
+                                    e
+                                );
+                            }
+                        }
                         std::process::exit(1);
                     }
                     unreachable!("exec should never return");
@@ -228,35 +284,26 @@ fn exec_server(command: &[String], env_vars: &[String]) -> Result<()> {
         bail!("Server command cannot be empty");
     }
 
-    let program = CString::new(command[0].as_str()).context("Invalid program name")?;
-
-    let args: Result<Vec<CString>> = command
-        .iter()
-        .map(|s| CString::new(s.as_str()).context("Invalid argument"))
-        .collect();
-    let args = args?;
-
     // Parse environment variables
     let env_map = parse_env_vars(env_vars)?;
 
-    // If no custom env vars, use regular execvp
-    if env_map.is_empty() {
-        nix::unistd::execvp(&program, &args).context("Failed to exec into server")?;
-    } else {
-        // Use std::os::unix::process::CommandExt::exec() which supports environment variables
-        use std::os::unix::process::CommandExt;
-        let mut cmd = std::process::Command::new(&command[0]);
-        if command.len() > 1 {
-            cmd.args(&command[1..]);
-        }
-        // Add custom environment variables on top of inherited ones
-        cmd.envs(env_map);
-        // exec replaces current process - this never returns on success
-        let err = cmd.exec();
-        return Err(anyhow!("Failed to exec into server: {}", err));
+    // Use Command::exec() which does PATH lookup
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(&command[0]);
+    if command.len() > 1 {
+        cmd.args(&command[1..]);
     }
 
-    unreachable!("exec never returns on success");
+    // Add custom environment variables on top of inherited ones
+    if !env_map.is_empty() {
+        cmd.envs(&env_map);
+    }
+
+    // exec replaces current process - this never returns on success
+    let err = cmd.exec();
+
+    // If we get here, exec failed
+    Err(anyhow!("Failed to exec into server: {}", err))
 }
 
 #[cfg(test)]

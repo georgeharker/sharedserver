@@ -21,6 +21,7 @@ pub fn execute(
     metadata: Option<String>,
     pid: Option<i32>,
     env_vars: &[String],
+    log_file: Option<&str>,
     command: &[String],
 ) -> Result<()> {
     // Determine the client PID (use provided or default to parent process)
@@ -49,6 +50,7 @@ pub fn execute(
                 command,
                 client_pid,
                 metadata.clone(),
+                log_file,
             )?;
 
             // Read the server and clients info to get PID and refcount for output

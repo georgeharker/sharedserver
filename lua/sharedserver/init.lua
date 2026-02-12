@@ -248,6 +248,7 @@ M.register = function(name, opts)
         on_exit = nil,   -- optional callback(exit_code)
         idle_timeout = nil,  -- grace period duration (e.g., "30m", "1h", "2h30m")
         env = {},  -- optional environment variables (e.g., {PATH="/usr/bin", DEBUG="1"})
+        log_file = nil,  -- optional log file path for server stdout/stderr
     }
 
     opts = vim.tbl_extend("force", defaults, opts)
@@ -379,8 +380,7 @@ M._start_with_sharedserver = function(name, server, config)
     })
 
     -- Build sharedserver use command (combines start-or-attach + incref)
-    -- sharedserver use [--grace-period <duration>] [--metadata <text>] <name> [-- <command> [args...]]
-    -- Note: --pid defaults to parent process (Neovim), so we don't need to specify it
+    -- sharedserver use [--grace-period <duration>] [--pid <pid>] [--metadata <text>] <name> [-- <command> [args...]]
     local sharedserver_args = {"use"}
 
     -- Add grace period if configured
@@ -389,8 +389,14 @@ M._start_with_sharedserver = function(name, server, config)
         table.insert(sharedserver_args, config.idle_timeout)
     end
 
-    -- Add metadata (Neovim instance identification)
+    -- IMPORTANT: Explicitly pass Neovim's PID as the client PID
+    -- Without this, getppid() would return the intermediate shell/process created by plenary.job,
+    -- which exits immediately and causes the watcher to think the client died
     local pid = vim.fn.getpid()
+    table.insert(sharedserver_args, "--pid")
+    table.insert(sharedserver_args, tostring(pid))
+
+    -- Add metadata (Neovim instance identification)
     table.insert(sharedserver_args, "--metadata")
     table.insert(sharedserver_args, "nvim-" .. pid)
 
@@ -400,6 +406,12 @@ M._start_with_sharedserver = function(name, server, config)
             table.insert(sharedserver_args, "--env")
             table.insert(sharedserver_args, key .. "=" .. value)
         end
+    end
+
+    -- Add log file if configured
+    if config.log_file then
+        table.insert(sharedserver_args, "--log-file")
+        table.insert(sharedserver_args, vim.fs.normalize(config.log_file))
     end
 
     table.insert(sharedserver_args, name)
