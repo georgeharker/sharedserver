@@ -88,12 +88,11 @@ fn test_quick_death_cleanup() {
 fn test_environment_variables() {
     // REGRESSION TEST: Verifies that parse_env_vars() correctly parses environment variables.
     //
-    // The actual parsing logic is thoroughly tested by unit tests in start.rs:267-319.
-    // This integration test simply verifies that the `admin start` command with --env flags
-    // completes successfully without errors.
-    //
-    // Note: Full end-to-end env var functionality is tested by the comprehensive bash test suite
-    // in tests/test-monitoring-and-recovery.sh
+    // Coverage:
+    // - Unit tests (start.rs:267-319): Thorough testing of parse_env_vars() function
+    // - This integration test: Verifies CLI command doesn't error with --env flags
+    // - Bash suite (test-monitoring-and-recovery.sh Category 5): End-to-end verification
+    //   that env vars actually reach the server process
 
     let server_name = "test_env_vars";
     cleanup_lock_files(server_name);

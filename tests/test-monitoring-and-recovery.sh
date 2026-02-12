@@ -598,6 +598,61 @@ kill $CANCEL_GRACE_PID 2>/dev/null || true
 wait $CANCEL_GRACE_PID 2>/dev/null || true
 
 # ============================================================================
+# Test Category 5: Environment Variable Support
+# ============================================================================
+section "Category 5: Environment Variable Support"
+
+# Test 5.1: Environment variables are passed to server process
+info "Test 5.1: Custom environment variables reach the server process"
+((TESTS_TOTAL++))
+
+# Create a test script that outputs env vars to a file
+ENV_OUTPUT_FILE="$TEST_LOCKDIR/env_test_output.txt"
+ENV_TEST_SCRIPT="$TEST_LOCKDIR/env_test.sh"
+cat >"$ENV_TEST_SCRIPT" <<EOF
+#!/bin/bash
+# Output env vars to a file we can check
+echo "TEST_VAR1=\$TEST_VAR1" > "$ENV_OUTPUT_FILE"
+echo "TEST_VAR2=\$TEST_VAR2" >> "$ENV_OUTPUT_FILE"
+echo "TEST_EQUALS=\$TEST_EQUALS" >> "$ENV_OUTPUT_FILE"
+sleep 30
+EOF
+chmod +x "$ENV_TEST_SCRIPT"
+
+# Start server with custom environment variables
+"$SHAREDSERVER" admin start \
+	--grace-period 5m \
+	--env TEST_VAR1=hello \
+	--env TEST_VAR2=world \
+	--env TEST_EQUALS=value_with=equals \
+	env-test -- \
+	"$ENV_TEST_SCRIPT" 2>/dev/null &
+ENV_TEST_PID=$!
+
+# Wait for server to start and write output
+wait $ENV_TEST_PID 2>/dev/null || true
+sleep 2
+
+# Check if output file was created and contains correct values
+if [ ! -f "$ENV_OUTPUT_FILE" ]; then
+	fail "Test 5.1: env output file not created"
+else
+	# Verify each env var
+	if grep -q "TEST_VAR1=hello" "$ENV_OUTPUT_FILE" &&
+		grep -q "TEST_VAR2=world" "$ENV_OUTPUT_FILE" &&
+		grep -q "TEST_EQUALS=value_with=equals" "$ENV_OUTPUT_FILE"; then
+		pass "Test 5.1: environment variables correctly passed to server"
+	else
+		fail "Test 5.1: environment variables not correctly set. Output:"
+		cat "$ENV_OUTPUT_FILE"
+	fi
+fi
+
+# Cleanup
+"$SHAREDSERVER" admin stop env-test 2>/dev/null || true
+rm -f "$ENV_OUTPUT_FILE" "$ENV_TEST_SCRIPT"
+
+# ============================================================================
 # Test Summary
 # ============================================================================
 
