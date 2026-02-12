@@ -782,6 +782,58 @@ local info = vim.fn.json_decode(json)
 print("PID:", info.pid, "Status:", info.status, "Refcount:", info.refcount)
 ```
 
+## Debugging
+
+### Health Check
+
+The plugin automatically monitors servers for 3 seconds after startup. If a server exits immediately, you'll receive an error notification:
+
+```
+Error: sharedserver: 'myserver' died unexpectedly after start
+```
+
+This helps catch configuration issues that would otherwise fail silently.
+
+### Capturing Server Output
+
+**Important:** Server stdout/stderr go directly to Neovim's terminal by design (transparency). To capture output for debugging, redirect it in your command:
+
+```lua
+require("sharedserver").setup({
+    myserver = {
+        command = "bash",
+        args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
+        -- or: args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
+    },
+})
+```
+
+Then check `/tmp/myserver.log` for server output.
+
+**See [DEBUGGING.md](docs/DEBUGGING.md) for comprehensive troubleshooting guide.**
+
+### Common Issues
+
+**Server exits immediately:**
+1. Redirect server output to a file to see error messages
+2. Compare with manually running the command in your shell
+3. Check environment variables (especially PATH)
+4. Verify file paths are absolute, not relative
+5. Check if server requires TTY or stdin
+
+**Command not found:**
+- Use absolute path: `command = "/usr/local/bin/myserver"`
+- Or ensure command is in Neovim's PATH
+
+**Environment variables not working:**
+- Use `vim.fn.expand()` for paths with `~` or `$VAR`
+- Example: `vim.fn.expand("$HOME") .. "/.config/app"`
+
+**Port already in use:**
+- Check if another instance is running: `:ServerStatus`
+- Stop it: `:ServerStop myserver`
+- Or check system: `lsof -i :PORT`
+
 ## License
 
 MIT

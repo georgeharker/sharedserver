@@ -290,6 +290,29 @@ M.register = function(name, opts)
     end
 end
 
+-- Schedule a health check to verify server is still running after start
+M._schedule_health_check = function(name, delay_ms)
+    delay_ms = delay_ms or 3000  -- Default to 3 seconds
+    
+    vim.defer_fn(function()
+        local server = M._servers[name]
+        if not server or not server.attached then
+            return  -- Server was stopped manually, nothing to check
+        end
+        
+        local info = M._sharedserver_info(name)
+        if not info or info.state == "stopped" then
+            -- Server died after starting
+            M._notify(
+                "sharedserver: '" .. name .. "' died unexpectedly after start",
+                vim.log.levels.ERROR,
+                "error"
+            )
+            server.attached = false
+        end
+    end, delay_ms)
+end
+
 -- Attach to server only if already running (for lazy mode)
 M.attach_if_running = function(name)
     local server = M._servers[name]
@@ -398,6 +421,11 @@ M._start_with_sharedserver = function(name, server, config)
         -- Check for "Started" vs "Attached" in the sharedserver output
         local action = stdout and stdout:match("Started") and "started" or "attached to"
         M._notify("sharedserver: " .. action .. " '" .. name .. "' (pid " .. server_pid .. ")", vim.log.levels.INFO, action == "started" and "start" or "attach")
+
+        -- Schedule health check if we just started a new server
+        if action == "started" then
+            M._schedule_health_check(name, 3000)  -- Check after 3 seconds
+        end
 
         if config.on_start and info and info.pid and action == "started" then
             config.on_start(info.pid)
