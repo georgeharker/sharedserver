@@ -784,7 +784,22 @@ print("PID:", info.pid, "Status:", info.status, "Refcount:", info.refcount)
 
 ## Debugging
 
-### Health Check
+### Health Check Command
+
+Run `:checkhealth sharedserver` in Neovim to verify your setup:
+
+```vim
+:checkhealth sharedserver
+```
+
+This checks:
+- ✓ sharedserver binary is installed and accessible
+- ✓ Binary version information
+- ✓ Lock directory is accessible and writable
+- ✓ Plugin API is loaded correctly
+- ✓ Current status of configured servers
+
+### Automatic Health Monitoring
 
 The plugin automatically monitors servers for 3 seconds after startup. If a server exits immediately, you'll receive an error notification:
 

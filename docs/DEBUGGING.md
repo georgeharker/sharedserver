@@ -4,6 +4,21 @@
 
 If a server exits immediately after starting, the plugin now includes a **health check** that automatically notifies you within 3 seconds.
 
+## Health Check Command
+
+Before debugging issues, verify your setup with:
+
+```vim
+:checkhealth sharedserver
+```
+
+This checks:
+- ✓ sharedserver binary is installed and in PATH
+- ✓ Binary version information
+- ✓ Lock directory is accessible and writable
+- ✓ Plugin is loaded correctly
+- ✓ Status of configured servers
+
 ## Health Check Notification
 
 When a server starts successfully but dies within 3 seconds, you'll see:
