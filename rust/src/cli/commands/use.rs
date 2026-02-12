@@ -20,6 +20,7 @@ pub fn execute(
     grace_period: &str,
     metadata: Option<String>,
     pid: Option<i32>,
+    env_vars: &[String],
     command: &[String],
 ) -> Result<()> {
     // Determine the client PID (use provided or default to parent process)
@@ -44,6 +45,7 @@ pub fn execute(
             super::start::execute_with_client(
                 name,
                 grace_period,
+                env_vars,
                 command,
                 client_pid,
                 metadata.clone(),

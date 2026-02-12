@@ -53,6 +53,9 @@ enum Commands {
         /// Client PID (defaults to parent process - the caller)
         #[arg(long)]
         pid: Option<i32>,
+        /// Environment variables in KEY=VALUE format (can be specified multiple times)
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env_vars: Vec<String>,
         /// Server command and arguments (required if server not running)
         #[arg(last = true)]
         command: Vec<String>,
@@ -107,6 +110,9 @@ enum AdminCommands {
         /// Grace period before shutdown when refcount reaches 0 (e.g., "5m", "1h", "30s")
         #[arg(long, default_value = "5m")]
         grace_period: String,
+        /// Environment variables in KEY=VALUE format (can be specified multiple times)
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env_vars: Vec<String>,
         /// Server command and arguments
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -154,8 +160,9 @@ fn main() -> Result<()> {
             grace_period,
             metadata,
             pid,
+            env_vars,
             command,
-        } => commands::r#use::execute(&name, &grace_period, metadata, pid, &command),
+        } => commands::r#use::execute(&name, &grace_period, metadata, pid, &env_vars, &command),
         Commands::Unuse { name, pid } => commands::unuse::execute(&name, pid),
         Commands::List => commands::list::execute(),
         Commands::Info { name, json } => commands::info::execute(&name, json),
@@ -170,8 +177,9 @@ fn main() -> Result<()> {
             AdminCommands::Start {
                 name,
                 grace_period,
+                env_vars,
                 command,
-            } => commands::start::execute(&name, &grace_period, &command),
+            } => commands::start::execute(&name, &grace_period, &env_vars, &command),
             AdminCommands::Stop { name, force } => commands::stop::execute(&name, force),
             AdminCommands::Incref {
                 name,

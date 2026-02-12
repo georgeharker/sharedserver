@@ -112,24 +112,36 @@ else
 	pass "Test 1.1: server lockfile correctly not created after failed start"
 fi
 
-# Test 1.2: Server starts but crashes immediately - lock files cleaned up
+# Test 1.2: Server starts but crashes shortly after - watcher cleans up lock files
 info "Test 1.2: Server crashes immediately - watcher must clean up lock files"
 ((TESTS_TOTAL++))
 
-# Start server that exits immediately (admin start creates server with refcount=0)
-# The start command will timeout after 2s and clean up the lock files
-"$SHAREDSERVER" admin start --grace-period 5m crash-test-immediate -- bash -c "exit 1" 2>/dev/null &
+# Start server that lives long enough to pass the 2s timeout, then crashes
+# This tests the watcher's crash detection, not the start command's timeout cleanup
+"$SHAREDSERVER" admin start --grace-period 5m crash-test-immediate -- bash -c "sleep 3; exit 1" 2>/dev/null &
 START_PID=$!
 
-# Wait for the start command to timeout and clean up (2s timeout + small buffer)
+# Wait for the start command to complete successfully
 wait $START_PID 2>/dev/null || true
 sleep 0.5
 
-if [ -f "$TEST_LOCKDIR/crash-test-immediate.server.json" ]; then
-	fail "Test 1.2: server lockfile should be cleaned up after crash"
+# Verify server started (lock file should exist)
+if [ ! -f "$TEST_LOCKDIR/crash-test-immediate.server.json" ]; then
+	fail "Test 1.2: server lockfile should exist after successful start"
+	# Don't continue if server didn't start
 else
-	pass "Test 1.2: server lockfile correctly cleaned up after immediate crash"
+	# Wait for server to crash and watcher to clean up (3s server runtime + 5s watcher poll + buffer)
+	sleep 9
+
+	if [ -f "$TEST_LOCKDIR/crash-test-immediate.server.json" ]; then
+		fail "Test 1.2: server lockfile should be cleaned up after crash"
+	else
+		pass "Test 1.2: server lockfile correctly cleaned up after crash"
+	fi
 fi
+
+# Cleanup background process
+kill $START_PID 2>/dev/null || true
 
 # Test 1.3: Server with client crashes - lock files contain valid state before cleanup
 info "Test 1.3: Server with active clients crashes - verify lock file state"

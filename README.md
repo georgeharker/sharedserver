@@ -328,6 +328,10 @@ For each server:
 
 - **command** (required): Command to execute (can be full path or command in PATH)
 - **args** (optional, default: `{}`): Arguments to pass to the command
+- **env** (optional, default: `{}`): Environment variables to set for the server process
+    - Table format: `{KEY = "value", KEY2 = "value2"}`
+    - Variables are **added to** (not replacing) the inherited environment
+    - Useful for: API keys, debug flags, custom paths, feature toggles
 - **lazy** (optional, default: `false`): If `true`, only attach to server if already running, don't start a new one
 - **working_dir** (optional, default: `nil`): Working directory for the server
 - **idle_timeout** (optional, default: `nil`): Grace period duration after last client disconnects (e.g., `"30m"`, `"1h"`, `"2h30m"`)
@@ -353,6 +357,36 @@ require("sharedserver").setup({
 vim.keymap.set("n", "<leader>sd", function()
     require("sharedserver").start("expensive_db")
 end, { desc = "Start expensive database" })
+```
+
+### Environment Variables
+
+Pass custom environment variables to server processes:
+
+```lua
+require("sharedserver").setup({
+    myapi = {
+        command = "api-server",
+        args = { "--port", "8080" },
+        env = {
+            API_KEY = "secret123",
+            DEBUG = "1",
+            LOG_LEVEL = "info",
+            CUSTOM_PATH = "/opt/myapp"
+        },
+    },
+})
+```
+
+Environment variables are **added to** the inherited environment (not replacing it).
+The server receives all variables from the parent process plus your custom ones.
+
+**CLI Usage:**
+```bash
+sharedserver use myserver \
+    --env DEBUG=1 \
+    --env API_KEY=secret123 \
+    myserver -- /path/to/server
 ```
 
 ## API

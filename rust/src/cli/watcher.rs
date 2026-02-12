@@ -33,8 +33,9 @@ pub fn run_watcher(name: &str, grace_period: &str) -> Result<()> {
     loop {
         // Check if server is alive
         if !is_process_alive(server_pid) {
-            // Server died, clean up and exit
+            // Server died, clean up both lock files and exit
             let _ = delete_server_lock(name);
+            let _ = delete_clients_lock(name);
             break;
         }
 

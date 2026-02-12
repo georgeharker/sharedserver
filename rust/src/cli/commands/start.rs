@@ -1,15 +1,21 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use nix::unistd::{fork, setsid, ForkResult};
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, parse_duration,
     read_server_lock, server_lock_exists, write_clients_lock, write_server_lock, ClientInfo,
     ClientsLock, ServerLock, ServerState,
 };
+use std::collections::HashMap;
 use std::ffi::CString;
 
 /// Start a server with no initial clients (refcount=0)
-pub fn execute(name: &str, grace_period: &str, command: &[String]) -> Result<()> {
-    execute_internal(name, grace_period, command, None)
+pub fn execute(
+    name: &str,
+    grace_period: &str,
+    env_vars: &[String],
+    command: &[String],
+) -> Result<()> {
+    execute_internal(name, grace_period, env_vars, command, None)
 }
 
 /// Start a server with an initial client atomically (refcount=1)
@@ -17,16 +23,24 @@ pub fn execute(name: &str, grace_period: &str, command: &[String]) -> Result<()>
 pub fn execute_with_client(
     name: &str,
     grace_period: &str,
+    env_vars: &[String],
     command: &[String],
     client_pid: i32,
     metadata: Option<String>,
 ) -> Result<()> {
-    execute_internal(name, grace_period, command, Some((client_pid, metadata)))
+    execute_internal(
+        name,
+        grace_period,
+        env_vars,
+        command,
+        Some((client_pid, metadata)),
+    )
 }
 
 fn execute_internal(
     name: &str,
     grace_period: &str,
+    env_vars: &[String],
     command: &[String],
     initial_client: Option<(i32, Option<String>)>,
 ) -> Result<()> {
@@ -128,7 +142,7 @@ fn execute_internal(
                 Ok(ForkResult::Child) => {
                     // Grandchild: become the actual server process
                     // Exec into server command (never returns)
-                    if let Err(e) = exec_server(command) {
+                    if let Err(e) = exec_server(command, env_vars) {
                         eprintln!("Failed to exec server: {:#}", e);
                         std::process::exit(1);
                     }
@@ -194,7 +208,22 @@ fn execute_internal(
     }
 }
 
-fn exec_server(command: &[String]) -> Result<()> {
+fn parse_env_vars(env_vars: &[String]) -> Result<HashMap<String, String>> {
+    let mut map = HashMap::new();
+    for env_str in env_vars {
+        let parts: Vec<&str> = env_str.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            bail!(
+                "Invalid environment variable format: '{}'. Expected KEY=VALUE",
+                env_str
+            );
+        }
+        map.insert(parts[0].to_string(), parts[1].to_string());
+    }
+    Ok(map)
+}
+
+fn exec_server(command: &[String], env_vars: &[String]) -> Result<()> {
     if command.is_empty() {
         bail!("Server command cannot be empty");
     }
@@ -207,8 +236,84 @@ fn exec_server(command: &[String]) -> Result<()> {
         .collect();
     let args = args?;
 
-    // exec replaces current process
-    nix::unistd::execvp(&program, &args).context("Failed to exec into server")?;
+    // Parse environment variables
+    let env_map = parse_env_vars(env_vars)?;
+
+    // If no custom env vars, use regular execvp
+    if env_map.is_empty() {
+        nix::unistd::execvp(&program, &args).context("Failed to exec into server")?;
+    } else {
+        // Use std::os::unix::process::CommandExt::exec() which supports environment variables
+        use std::os::unix::process::CommandExt;
+        let mut cmd = std::process::Command::new(&command[0]);
+        if command.len() > 1 {
+            cmd.args(&command[1..]);
+        }
+        // Add custom environment variables on top of inherited ones
+        cmd.envs(env_map);
+        // exec replaces current process - this never returns on success
+        let err = cmd.exec();
+        return Err(anyhow!("Failed to exec into server: {}", err));
+    }
 
     unreachable!("exec never returns on success");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_env_vars_valid() {
+        let env_vars = vec![
+            "KEY1=value1".to_string(),
+            "PATH=/usr/bin".to_string(),
+            "WORKSPACE_MCP_PORT=8002".to_string(),
+        ];
+
+        let result = parse_env_vars(&env_vars).unwrap();
+        assert_eq!(result.get("KEY1"), Some(&"value1".to_string()));
+        assert_eq!(result.get("PATH"), Some(&"/usr/bin".to_string()));
+        assert_eq!(result.get("WORKSPACE_MCP_PORT"), Some(&"8002".to_string()));
+    }
+
+    #[test]
+    fn test_parse_env_vars_with_equals_in_value() {
+        let env_vars = vec!["URL=https://example.com?key=value".to_string()];
+
+        let result = parse_env_vars(&env_vars).unwrap();
+        assert_eq!(
+            result.get("URL"),
+            Some(&"https://example.com?key=value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_env_vars_empty_value() {
+        let env_vars = vec!["EMPTY=".to_string()];
+
+        let result = parse_env_vars(&env_vars).unwrap();
+        assert_eq!(result.get("EMPTY"), Some(&"".to_string()));
+    }
+
+    #[test]
+    fn test_parse_env_vars_invalid_no_equals() {
+        let env_vars = vec!["INVALID_NO_EQUALS".to_string()];
+
+        let result = parse_env_vars(&env_vars);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid environment variable format"));
+    }
+
+    #[test]
+    fn test_parse_env_vars_invalid_empty_key() {
+        let env_vars = vec!["=value".to_string()];
+
+        let result = parse_env_vars(&env_vars).unwrap();
+        // Empty key is technically allowed by splitn, but should have empty string key
+        assert_eq!(result.get(""), Some(&"value".to_string()));
+    }
 }

@@ -181,6 +181,94 @@ require("sharedserver").setup({
 })
 ```
 
+### Example 4: Environment Variables
+
+Pass custom environment variables to server processes:
+
+```lua
+-- API server with credentials
+require("sharedserver").setup({
+    myapi = {
+        command = "api-server",
+        args = { "--port", "8080" },
+        env = {
+            API_KEY = "sk-1234567890abcdef",
+            DATABASE_URL = "postgresql://localhost:5432/mydb",
+            LOG_LEVEL = "debug",
+            ENVIRONMENT = "development",
+        },
+    },
+})
+```
+
+**Multi-environment configuration:**
+
+```lua
+-- Switch between dev/staging/prod
+local environment = os.getenv("APP_ENV") or "development"
+
+local api_configs = {
+    development = {
+        API_KEY = "dev-key-123",
+        DATABASE_URL = "postgresql://localhost:5432/dev_db",
+        DEBUG = "1",
+    },
+    staging = {
+        API_KEY = "staging-key-456",
+        DATABASE_URL = "postgresql://staging.db:5432/staging_db",
+        DEBUG = "0",
+    },
+    production = {
+        API_KEY = "prod-key-789",
+        DATABASE_URL = "postgresql://prod.db:5432/prod_db",
+        DEBUG = "0",
+    },
+}
+
+require("sharedserver").setup({
+    api_server = {
+        command = "api-server",
+        args = { "--port", "8080" },
+        env = api_configs[environment],
+        on_start = function(pid)
+            vim.notify("API server started in " .. environment .. " mode")
+        end,
+    },
+})
+```
+
+**ChromaDB with custom paths:**
+
+```lua
+require("sharedserver").setup({
+    chroma = {
+        command = "chroma",
+        args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+        env = {
+            CHROMA_SERVER_HOST = "127.0.0.1",
+            CHROMA_SERVER_HTTP_PORT = "8000",
+            ANONYMIZED_TELEMETRY = "False",
+            ALLOW_RESET = "True",
+        },
+    },
+})
+```
+
+**Language server with debug mode:**
+
+```lua
+require("sharedserver").setup({
+    pylsp = {
+        command = "pylsp",
+        env = {
+            PYTHONPATH = vim.fn.getcwd() .. "/src",
+            PYLSP_LOG_LEVEL = "debug",
+            PYLSP_PLUGINS_ROPE_ENABLED = "true",
+        },
+    },
+})
+```
+
 ## API Usage Examples
 
 ### Start/stop servers programmatically

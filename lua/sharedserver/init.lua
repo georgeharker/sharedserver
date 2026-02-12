@@ -247,6 +247,7 @@ M.register = function(name, opts)
         on_start = nil,  -- optional callback(pid)
         on_exit = nil,   -- optional callback(exit_code)
         idle_timeout = nil,  -- grace period duration (e.g., "30m", "1h", "2h30m")
+        env = {},  -- optional environment variables (e.g., {PATH="/usr/bin", DEBUG="1"})
     }
 
     opts = vim.tbl_extend("force", defaults, opts)
@@ -370,6 +371,14 @@ M._start_with_sharedserver = function(name, server, config)
     table.insert(sharedserver_args, "--metadata")
     table.insert(sharedserver_args, "nvim-" .. pid)
 
+    -- Add environment variables if configured
+    if config.env then
+        for key, value in pairs(config.env) do
+            table.insert(sharedserver_args, "--env")
+            table.insert(sharedserver_args, key .. "=" .. value)
+        end
+    end
+
     table.insert(sharedserver_args, name)
     table.insert(sharedserver_args, "--")  -- Separator before command
     table.insert(sharedserver_args, config.command)
@@ -447,7 +456,7 @@ M.status = function(name)
 
     -- Use sharedserver to get server info
     local info, err = M._sharedserver_info(name)
-    if info then
+    if info and info.state ~= "stopped" then
         -- Parse sharedserver info response
         return {
             name = name,
@@ -460,7 +469,7 @@ M.status = function(name)
             started_at = info.started_at,
         }
     else
-        -- Server not found
+        -- Server not found or stopped
         return {
             name = name,
             running = false,

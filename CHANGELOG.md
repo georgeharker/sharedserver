@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Environment variable support**: Pass custom environment variables to server processes
+    - New `env` configuration option in Lua (table format: `{KEY = "value"}`)
+    - New `--env KEY=VALUE` CLI argument (repeatable)
+    - Environment variables are inherited and extended, not replaced
+    - Useful for API keys, debug flags, custom paths, and feature toggles
+    - Example: `env = {DEBUG = "1", API_KEY = "secret"}` in server config
 
 ### Changed
 
