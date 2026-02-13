@@ -13,12 +13,13 @@ local sharedserver = require("sharedserver")
 
 -- Configure the plugin
 sharedserver.setup({
-    opencode = {
-        command = "sleep",
-        args = {"3600"},  -- Sleep for 1 hour (simulates a long-running server)
-        idle_timeout = "30s",  -- Grace period of 30 seconds
+    servers = {
+        opencode = {
+            command = "sleep",
+            args = {"3600"},  -- Sleep for 1 hour (simulates a long-running server)
+            idle_timeout = "30s",  -- Grace period of 30 seconds
+        },
     },
-}, {
     notify = {
         on_start = true,
         on_attach = true,

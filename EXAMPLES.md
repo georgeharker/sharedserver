@@ -13,32 +13,34 @@ return {
     config = function()
         -- Setup multiple servers
         require("sharedserver").setup({
-            -- ChromaDB vector database (auto-start)
-            chroma = {
-                command = "chroma",
-                args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
-                on_start = function(pid)
-                    vim.notify("ChromaDB started on http://localhost:8000")
-                end,
-            },
+            servers = {
+                -- ChromaDB vector database (auto-start)
+                chroma = {
+                    command = "chroma",
+                    args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+                    on_start = function(pid)
+                        vim.notify("ChromaDB started on http://localhost:8000")
+                    end,
+                },
 
-            -- Redis (lazy mode - only attach if already running)
-            redis = {
-                command = "redis-server",
-                args = { "--port", "6379" },
-                lazy = true,
-            },
+                -- Redis (lazy mode - only attach if already running)
+                redis = {
+                    command = "redis-server",
+                    args = { "--port", "6379" },
+                    lazy = true,
+                },
 
-            -- Local development server (lazy mode)
-            devserver = {
-                command = "python",
-                args = { "-m", "http.server", "8080" },
-                working_dir = vim.fn.getcwd(),
-                lazy = true,
-                on_start = function(pid)
-                    vim.notify("Dev server running on http://localhost:8080")
-                end,
-            },
+                -- Local development server (lazy mode)
+                devserver = {
+                    command = "python",
+                    args = { "-m", "http.server", "8080" },
+                    working_dir = vim.fn.getcwd(),
+                    lazy = true,
+                    on_start = function(pid)
+                        vim.notify("Dev server running on http://localhost:8080")
+                    end,
+                },
+            }
         })
     end,
 }
@@ -48,9 +50,11 @@ return {
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+        },
     },
 })
 ```
@@ -112,17 +116,19 @@ end, { desc = "Start dev server" })
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
-        on_start = function(pid)
-            vim.notify("ChromaDB started on http://localhost:8000")
-        end,
-    },
-    redis = {
-        command = "redis-server",
-        args = { "--port", "6379" },
-        lazy = true,  -- Only use if already running
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+            on_start = function(pid)
+                vim.notify("ChromaDB started on http://localhost:8000")
+            end,
+        },
+        redis = {
+            command = "redis-server",
+            args = { "--port", "6379" },
+            lazy = true,  -- Only use if already running
+        },
     },
 })
 ```
@@ -131,17 +137,19 @@ require("sharedserver").setup({
 
 ```lua
 require("sharedserver").setup({
-    frontend = {
-        command = "npm",
-        args = { "run", "dev" },
-        working_dir = vim.fn.getcwd() .. "/frontend",
-        lazy = true,
-    },
-    backend = {
-        command = "python",
-        args = { "-m", "uvicorn", "main:app", "--reload" },
-        working_dir = vim.fn.getcwd() .. "/backend",
-        lazy = true,
+    servers = {
+        frontend = {
+            command = "npm",
+            args = { "run", "dev" },
+            working_dir = vim.fn.getcwd() .. "/frontend",
+            lazy = true,
+        },
+        backend = {
+            command = "python",
+            args = { "-m", "uvicorn", "main:app", "--reload" },
+            working_dir = vim.fn.getcwd() .. "/backend",
+            lazy = true,
+        },
     },
 })
 
@@ -156,27 +164,29 @@ end, { desc = "Start dev servers" })
 
 ```lua
 require("sharedserver").setup({
-    postgres = {
-        command = "postgres",
-        args = { "-D", vim.fn.expand("~/.local/share/postgres/data") },
-        lazy = true,
-    },
-    redis = {
-        command = "redis-server",
-        args = { "--port", "6379" },
-        lazy = true,
-    },
-    api_server = {
-        command = "npm",
-        args = { "run", "dev" },
-        working_dir = vim.fn.getcwd(),
-        lazy = true,
-        on_start = function(pid)
-            vim.notify("API server running on http://localhost:3000")
-        end,
-        on_exit = function(exit_code)
-            vim.notify("API server exited with code " .. exit_code)
-        end,
+    servers = {
+        postgres = {
+            command = "postgres",
+            args = { "-D", vim.fn.expand("~/.local/share/postgres/data") },
+            lazy = true,
+        },
+        redis = {
+            command = "redis-server",
+            args = { "--port", "6379" },
+            lazy = true,
+        },
+        api_server = {
+            command = "npm",
+            args = { "run", "dev" },
+            working_dir = vim.fn.getcwd(),
+            lazy = true,
+            on_start = function(pid)
+                vim.notify("API server running on http://localhost:3000")
+            end,
+            on_exit = function(exit_code)
+                vim.notify("API server exited with code " .. exit_code)
+            end,
+        },
     },
 })
 ```
@@ -188,14 +198,16 @@ Pass custom environment variables to server processes:
 ```lua
 -- API server with credentials
 require("sharedserver").setup({
-    myapi = {
-        command = "api-server",
-        args = { "--port", "8080" },
-        env = {
-            API_KEY = "sk-1234567890abcdef",
-            DATABASE_URL = "postgresql://localhost:5432/mydb",
-            LOG_LEVEL = "debug",
-            ENVIRONMENT = "development",
+    servers = {
+        myapi = {
+            command = "api-server",
+            args = { "--port", "8080" },
+            env = {
+                API_KEY = "sk-1234567890abcdef",
+                DATABASE_URL = "postgresql://localhost:5432/mydb",
+                LOG_LEVEL = "debug",
+                ENVIRONMENT = "development",
+            },
         },
     },
 })
@@ -226,13 +238,15 @@ local api_configs = {
 }
 
 require("sharedserver").setup({
-    api_server = {
-        command = "api-server",
-        args = { "--port", "8080" },
-        env = api_configs[environment],
-        on_start = function(pid)
-            vim.notify("API server started in " .. environment .. " mode")
-        end,
+    servers = {
+        api_server = {
+            command = "api-server",
+            args = { "--port", "8080" },
+            env = api_configs[environment],
+            on_start = function(pid)
+                vim.notify("API server started in " .. environment .. " mode")
+            end,
+        },
     },
 })
 ```
@@ -241,14 +255,16 @@ require("sharedserver").setup({
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
-        env = {
-            CHROMA_SERVER_HOST = "127.0.0.1",
-            CHROMA_SERVER_HTTP_PORT = "8000",
-            ANONYMIZED_TELEMETRY = "False",
-            ALLOW_RESET = "True",
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", vim.fn.expand("~/.local/share/chromadb") },
+            env = {
+                CHROMA_SERVER_HOST = "127.0.0.1",
+                CHROMA_SERVER_HTTP_PORT = "8000",
+                ANONYMIZED_TELEMETRY = "False",
+                ALLOW_RESET = "True",
+            },
         },
     },
 })
@@ -258,12 +274,14 @@ require("sharedserver").setup({
 
 ```lua
 require("sharedserver").setup({
-    pylsp = {
-        command = "pylsp",
-        env = {
-            PYTHONPATH = vim.fn.getcwd() .. "/src",
-            PYLSP_LOG_LEVEL = "debug",
-            PYLSP_PLUGINS_ROPE_ENABLED = "true",
+    servers = {
+        pylsp = {
+            command = "pylsp",
+            env = {
+                PYTHONPATH = vim.fn.getcwd() .. "/src",
+                PYLSP_LOG_LEVEL = "debug",
+                PYLSP_PLUGINS_ROPE_ENABLED = "true",
+            },
         },
     },
 })
@@ -323,17 +341,18 @@ end
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run" },
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run" },
+        },
     },
-}, {
     notify = {
         on_start = false,  -- Silent even on first start
         on_attach = false,
         on_stop = false,
         on_error = true,   -- Still show errors
-    }
+    },
 })
 ```
 
@@ -341,17 +360,18 @@ require("sharedserver").setup({
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run" },
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run" },
+        },
     },
-}, {
     notify = {
         on_start = true,
         on_attach = true,  -- Notify on every attach
         on_stop = true,    -- Notify on stop
         on_error = true,
-    }
+    },
 })
 ```
 
@@ -361,9 +381,11 @@ The default configuration is quiet during normal operations:
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run" },
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run" },
+        },
     },
 })
 -- Equivalent to:
@@ -383,18 +405,20 @@ Use `on_start` and `on_exit` callbacks to override default notifications:
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run" },
-        on_start = function(pid)
-            -- Custom notification (overrides default)
-            vim.notify("🔥 ChromaDB ready at http://localhost:8000", vim.log.levels.INFO)
-        end,
-        on_exit = function(exit_code)
-            if exit_code ~= 0 then
-                vim.notify("⚠️  ChromaDB crashed!", vim.log.levels.WARN)
-            end
-        end,
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run" },
+            on_start = function(pid)
+                -- Custom notification (overrides default)
+                vim.notify("🔥 ChromaDB ready at http://localhost:8000", vim.log.levels.INFO)
+            end,
+            on_exit = function(exit_code)
+                if exit_code ~= 0 then
+                    vim.notify("⚠️  ChromaDB crashed!", vim.log.levels.WARN)
+                end
+            end,
+        },
     },
 })
 ```

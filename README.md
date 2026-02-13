@@ -68,10 +68,12 @@ sharedserver unuse webserver  # Server stays alive if other clients need it
 -- Without sharedserver: Every Neovim instance starts its own (slow, wasteful)
 -- With sharedserver: One instance shared by all, 30min grace period after last editor closes
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", "~/.local/share/chromadb" },
-        idle_timeout = "30m",
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", "~/.local/share/chromadb" },
+            idle_timeout = "30m",
+        }
     }
 })
 ```
@@ -80,10 +82,12 @@ require("sharedserver").setup({
 ```lua
 -- Don't start expensive ML inference server until explicitly needed
 require("sharedserver").setup({
-    llm_server = {
-        command = "ollama",
-        args = { "serve" },
-        lazy = true,  -- Only attach if already running
+    servers = {
+        llm_server = {
+            command = "ollama",
+            args = { "serve" },
+            lazy = true,  -- Only attach if already running
+        }
     }
 })
 -- Start manually when needed: :ServerStart llm_server
@@ -202,14 +206,16 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
     build = "cargo install sharedserver --force",
     config = function()
         require("sharedserver").setup({
-            chroma = {
-                command = "chroma",
-                args = { "run", "--path", "~/.local/share/chromadb" },
-                idle_timeout = "30m",  -- Keep alive 30 minutes after last client
-            },
-            redis = {
-                command = "redis-server",
-                lazy = true,  -- Only attach if already running
+            servers = {
+                chroma = {
+                    command = "chroma",
+                    args = { "run", "--path", "~/.local/share/chromadb" },
+                    idle_timeout = "30m",  -- Keep alive 30 minutes after last client
+                },
+                redis = {
+                    command = "redis-server",
+                    lazy = true,  -- Only attach if already running
+                }
             }
         })
     end
@@ -225,7 +231,9 @@ Or for local development:
     build = "cargo install --path rust --force",
     config = function()
         require("sharedserver").setup({
-            -- your config
+            servers = {
+                -- your servers
+            }
         })
     end
 }
@@ -237,16 +245,20 @@ See [EXAMPLES.md](./EXAMPLES.md) for more configuration examples and usage patte
 
 ### Setup Options
 
-The `setup()` function accepts two parameters:
+The `setup()` function accepts a single options table:
 
 ```lua
-require("sharedserver").setup(servers, opts)
+require("sharedserver").setup({
+    servers = { ... },
+    commands = true,
+    notify = { ... }
+})
 ```
 
-- **servers**: A table of server configurations (see below)
-- **opts**: Optional configuration table with the following options:
-  - **commands** (default: `true`): Whether to automatically create user commands
-  - **notify**: Notification preferences (see below)
+Options:
+- **servers** (required): A table of server configurations (see below)
+- **commands** (default: `true`): Whether to automatically create user commands
+- **notify**: Notification preferences (see below)
 
 ### Notification Configuration
 
@@ -254,8 +266,9 @@ Control when the plugin shows notifications:
 
 ```lua
 require("sharedserver").setup({
-    -- servers...
-}, {
+    servers = {
+        -- your servers...
+    },
     commands = true,
     notify = {
         on_start = true,   -- Notify when starting a new server (default: true)
@@ -271,31 +284,33 @@ By default, the plugin is quiet during normal operations (attach/detach) and onl
 - An error occurs
 - A server exits unexpectedly (non-zero exit code)
 
-### Multiple Servers (Recommended)
+### Server Configuration
 
 ```lua
 require("sharedserver").setup({
-    -- Server name as key
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", "~/.local/share/chromadb" },
-        lazy = false,  -- Start immediately (default)
-        idle_timeout = "1h",  -- Keep alive 1 hour after last client
-    },
-    redis = {
-        command = "redis-server",
-        args = { "--port", "6379" },
-        lazy = true,  -- Only attach if already running, don't start
-    },
-    webserver = {
-        command = "python",
-        args = { "-m", "http.server", "8080" },
-        working_dir = vim.fn.getcwd(),
-        idle_timeout = "30m",
-        on_start = function(pid)
-            vim.notify("Web server started: http://localhost:8080")
-        end,
-    },
+    servers = {
+        -- Server name as key
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", "~/.local/share/chromadb" },
+            lazy = false,  -- Start immediately (default)
+            idle_timeout = "1h",  -- Keep alive 1 hour after last client
+        },
+        redis = {
+            command = "redis-server",
+            args = { "--port", "6379" },
+            lazy = true,  -- Only attach if already running, don't start
+        },
+        webserver = {
+            command = "python",
+            args = { "-m", "http.server", "8080" },
+            working_dir = vim.fn.getcwd(),
+            idle_timeout = "30m",
+            on_start = function(pid)
+                vim.notify("Web server started: http://localhost:8080")
+            end,
+        },
+    }
 })
 ```
 
@@ -305,24 +320,17 @@ To disable automatic command creation:
 
 ```lua
 require("sharedserver").setup({
-    chroma = {
-        command = "chroma",
-        args = { "run", "--path", "~/.local/share/chromadb" },
+    servers = {
+        chroma = {
+            command = "chroma",
+            args = { "run", "--path", "~/.local/share/chromadb" },
+        },
     },
-}, { commands = false })
-```
-
-### Single Server (Backward Compatible)
-
-```lua
-require("sharedserver").setup({
-    name = "myserver",  -- Optional, defaults to "default"
-    command = "chroma",
-    args = { "run", "--path", "~/.local/share/chromadb" },
+    commands = false
 })
 ```
 
-### Server Configuration Options
+### Server Options
 
 For each server:
 
@@ -352,10 +360,12 @@ The `lazy` option is useful for servers that:
 
 ```lua
 require("sharedserver").setup({
-    expensive_db = {
-        command = "heavy-database-server",
-        lazy = true,  -- Only attach if already running
-    },
+    servers = {
+        expensive_db = {
+            command = "heavy-database-server",
+            lazy = true,  -- Only attach if already running
+        },
+    }
 })
 
 -- Later, manually start when needed:
@@ -370,17 +380,19 @@ Pass custom environment variables to server processes:
 
 ```lua
 require("sharedserver").setup({
-    myapi = {
-        command = "api-server",
-        args = { "--port", "8080" },
-        env = {
-            API_KEY = "secret123",
-            DEBUG = "1",
-            LOG_LEVEL = "info",
-            CUSTOM_PATH = "/opt/myapp"
+    servers = {
+        myapi = {
+            command = "api-server",
+            args = { "--port", "8080" },
+            env = {
+                API_KEY = "secret123",
+                DEBUG = "1",
+                LOG_LEVEL = "info",
+                CUSTOM_PATH = "/opt/myapp"
+            },
+            log_file = "/tmp/myapi.log",  -- Optional: capture server output
         },
-        log_file = "/tmp/myapi.log",  -- Optional: capture server output
-    },
+    }
 })
 ```
 
@@ -403,8 +415,12 @@ All API functions are available through `require("sharedserver")`:
 ```lua
 local sharedserver = require("sharedserver")
 
--- Setup servers and optionally enable commands
-sharedserver.setup(servers, opts)
+-- Setup servers
+sharedserver.setup({
+    servers = { ... },
+    commands = true,
+    notify = { ... }
+})
 
 -- Register a server after initial setup
 sharedserver.register(name, config)
@@ -464,20 +480,25 @@ To disable command creation, pass `{ commands = false }` to `setup()`.
 
 ## Detailed API Reference
 
-### `setup(servers, opts)`
+### `setup(opts)`
 
-### `setup(servers, opts)`
-
-Initialize and register servers. Accepts:
-- **servers**: A table of named server configurations, or a single server configuration (backward compatible)
-- **opts**: Optional table with options:
-  - `commands` (default: `true`): Whether to create user commands
+Initialize and register servers. Accepts a single options table with:
+- **servers**: A table of named server configurations
+- **commands** (default: `true`): Whether to create user commands
+- **notify**: Notification preferences (see Notification Configuration)
 
 Example:
 ```lua
 require("sharedserver").setup({
-    chroma = { command = "chroma", args = { "run" } },
-}, { commands = true })
+    servers = {
+        chroma = { command = "chroma", args = { "run" } },
+    },
+    commands = true,
+    notify = {
+        on_start = true,
+        on_attach = false,
+    }
+})
 ```
 
 ### `register(name, config)`
@@ -612,9 +633,11 @@ The plugin uses **sharedserver** (Rust-based, bundled in `rust/target/release/`)
 
 ```lua
 require("sharedserver").setup({
-    myserver = {
-        command = "myserver",
-        idle_timeout = "30m",  -- Stay alive 30 min after last client
+    servers = {
+        myserver = {
+            command = "myserver",
+            idle_timeout = "30m",  -- Stay alive 30 min after last client
+        }
     }
 })
 ```
@@ -660,6 +683,8 @@ The sharedserver binary provides a clean command-line interface for managing sha
 - `admin incref <name> --pid <pid>` - Manually increment refcount
 - `admin decref <name> --pid <pid>` - Manually decrement refcount
 - `admin debug <name>` - Show invocation logs
+- `admin doctor [name]` - Validate server state and clean up stale lockfiles
+- `admin kill <name>` - Force kill server process (SIGKILL) and clean up state
 
 **PID Behavior:**
 - User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
@@ -683,6 +708,15 @@ sharedserver list
 
 # Emergency stop (admin)
 sharedserver admin stop myserver --force
+
+# Validate all servers and clean up stale lockfiles
+sharedserver admin doctor
+
+# Check specific server health
+sharedserver admin doctor myserver
+
+# Force kill unresponsive server
+sharedserver admin kill myserver
 ```
 
 ### Two-Lockfile Architecture
@@ -749,10 +783,12 @@ sharedserver decref opencode
 
 ```lua
 require("sharedserver").setup({
-    opencode = {
-        command = "opencode",
-        args = { "serve", "--port", "4097" },
-        idle_timeout = "30m",  -- Grace period after all clients disconnect
+    servers = {
+        opencode = {
+            command = "opencode",
+            args = { "serve", "--port", "4097" },
+            idle_timeout = "30m",  -- Grace period after all clients disconnect
+        }
     }
 })
 ```
@@ -822,11 +858,13 @@ This helps catch configuration issues that would otherwise fail silently.
 
 ```lua
 require("sharedserver").setup({
-    myserver = {
-        command = "bash",
-        args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
-        -- or: args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
-    },
+    servers = {
+        myserver = {
+            command = "bash",
+            args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
+            -- or: args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
+        },
+    }
 })
 ```
 

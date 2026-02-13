@@ -21,7 +21,7 @@ EVERYDAY COMMANDS:
   completion  Generate shell completions
 
 ADMIN COMMANDS:
-  admin       Low-level server operations (start, stop, incref, decref, debug)
+  admin       Low-level server operations (start, stop, incref, decref, debug, doctor, kill)
   
 See 'sharedserver <command> --help' for detailed command information.
 See 'sharedserver admin --help' for administrative operations.
@@ -155,6 +155,16 @@ enum AdminCommands {
         /// Server name
         name: String,
     },
+    /// Validate server state and clean up inconsistencies
+    Doctor {
+        /// Server name (if omitted, checks all servers)
+        name: Option<String>,
+    },
+    /// Force kill a server and clean up all state
+    Kill {
+        /// Server name
+        name: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -210,6 +220,8 @@ fn main() -> Result<()> {
             } => commands::incref::execute(&name, metadata, pid),
             AdminCommands::Decref { name, pid } => commands::decref::execute(&name, pid),
             AdminCommands::Debug { name } => commands::debug::execute(&name, 50),
+            AdminCommands::Doctor { name } => commands::doctor::execute(name),
+            AdminCommands::Kill { name } => commands::kill::execute(&name),
         },
     }
 }

@@ -14,12 +14,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Environment variables are inherited and extended, not replaced
     - Useful for API keys, debug flags, custom paths, and feature toggles
     - Example: `env = {DEBUG = "1", API_KEY = "secret"}` in server config
+- **Admin doctor command**: Validate server state and automatically clean up issues
+    - Check all servers: `sharedserver admin doctor`
+    - Check specific server: `sharedserver admin doctor <name>`
+    - Validates server/watcher processes are alive
+    - Checks all client PIDs are valid processes
+    - Verifies refcount matches actual client count
+    - Validates state constraints (Active has clients, Grace has none)
+    - Automatically removes stale lockfiles for stopped servers
+    - Color-coded output with ✓/⚠ indicators
+- **Admin kill command**: Force kill unresponsive servers
+    - Force kill: `sharedserver admin kill <name>`
+    - Sends SIGKILL immediately (no grace period)
+    - Also kills watcher process if it exists
+    - Cleans up all lockfiles (server and clients)
+    - More aggressive than `admin stop --force`
+    - Useful when servers won't stop normally
 
 ### Changed
+- **BREAKING**: Lua API restructured to single-parameter format
+    - **Old**: `setup(servers_table, options_table)`
+    - **New**: `setup({ servers = {...}, commands = true, notify = {...} })`
+    - All server configurations must now be in a `servers` table
+    - Configuration options (commands, notify) are direct fields in opts
+    - No backward compatibility - clean break for cleaner API
+    - See README.md and EXAMPLES.md for migration examples
 
 ### Deprecated
 
 ### Removed
+- Single-server mode removed from Lua plugin (use `servers` table instead)
 
 ### Fixed
 - Fixed notification detection logic that incorrectly identified server starts as attaches, causing `on_start` notifications to not appear

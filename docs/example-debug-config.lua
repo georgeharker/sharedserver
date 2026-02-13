@@ -2,19 +2,20 @@
 -- Add this to your Neovim config to enable debug logging
 
 require("sharedserver").setup({
-    goog_ws = {
-        command = "uvx",
-        args = { "workspace-mcp", "--transport", "streamable-http" },
-        env = {
-            GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME") .. "/.cache/secrets/" .. vim.fn.expand("$USER") .. ".gcp-oauth.keys.json",
-            WORKSPACE_MCP_PORT = "8002",
+    servers = {
+        goog_ws = {
+            command = "uvx",
+            args = { "workspace-mcp", "--transport", "streamable-http" },
+            env = {
+                GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME") .. "/.cache/secrets/" .. vim.fn.expand("$USER") .. ".gcp-oauth.keys.json",
+                WORKSPACE_MCP_PORT = "8002",
+            },
+            lazy = true,
+
+            -- DEBUGGING: Enable this line to capture detailed startup logs
+            debug_log = "/tmp/sharedserver-debug.log",
         },
-        lazy = true,
-        
-        -- DEBUGGING: Enable this line to capture detailed startup logs
-        debug_log = "/tmp/sharedserver-debug.log",
     },
-}, {
     commands = true,
     notify = {
         on_start = true,
@@ -36,10 +37,12 @@ require("sharedserver").setup({
 -- You can test with a server that exits immediately:
 --
 -- require("sharedserver").setup({
---     test_exit = {
---         command = "bash",
---         args = { "-c", "exit 1" },
---         debug_log = "/tmp/sharedserver-debug.log",
+--     servers = {
+--         test_exit = {
+--             command = "bash",
+--             args = { "-c", "exit 1" },
+--             debug_log = "/tmp/sharedserver-debug.log",
+--         },
 --     },
 -- })
 --
@@ -48,10 +51,12 @@ require("sharedserver").setup({
 --
 -- Or test with delayed exit:
 -- require("sharedserver").setup({
---     test_delayed_exit = {
---         command = "bash",
---         args = { "-c", "sleep 2; exit 1" },
---         debug_log = "/tmp/sharedserver-debug.log",
+--     servers = {
+--         test_delayed_exit = {
+--             command = "bash",
+--             args = { "-c", "sleep 2; exit 1" },
+--             debug_log = "/tmp/sharedserver-debug.log",
+--         },
 --     },
 -- })
 --

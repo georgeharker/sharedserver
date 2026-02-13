@@ -107,6 +107,20 @@ fn execute_internal(
         Ok(ForkResult::Child) => {
             // First child: become the watcher process
             setsid().context("Failed to create new session for watcher")?;
+            
+            // CRITICAL: Redirect watcher's stdout/stderr immediately to prevent blocking
+            // on inherited pipes from parent process when writing errors/logs
+            use std::fs::OpenOptions;
+            use std::os::unix::io::AsRawFd;
+            if let Ok(devnull) = OpenOptions::new().write(true).open("/dev/null") {
+                let fd = devnull.as_raw_fd();
+                unsafe {
+                    libc::dup2(fd, 1); // stdout
+                    libc::dup2(fd, 2); // stderr
+                    libc::close(fd);
+                }
+            }
+            
             let watcher_pid = std::process::id() as i32;
 
             // Fork again to create the actual server process
@@ -154,7 +168,10 @@ fn execute_internal(
                     if let Ok(devnull) = OpenOptions::new().read(true).open("/dev/null") {
                         let fd = devnull.as_raw_fd();
                         unsafe {
+                            let flags = libc::fcntl(fd, libc::F_GETFD);
+                            libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
                             libc::dup2(fd, 0); // stdin
+                            libc::close(fd);
                         }
                     }
 
@@ -166,8 +183,11 @@ fn execute_internal(
                         {
                             let fd = logfile.as_raw_fd();
                             unsafe {
+                                let flags = libc::fcntl(fd, libc::F_GETFD);
+                                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
                                 libc::dup2(fd, 1); // stdout
                                 libc::dup2(fd, 2); // stderr
+                                libc::close(fd);
                             }
                         }
                     } else {
@@ -175,8 +195,11 @@ fn execute_internal(
                         if let Ok(devnull) = OpenOptions::new().write(true).open("/dev/null") {
                             let fd = devnull.as_raw_fd();
                             unsafe {
+                                let flags = libc::fcntl(fd, libc::F_GETFD);
+                                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
                                 libc::dup2(fd, 1); // stdout
                                 libc::dup2(fd, 2); // stderr
+                                libc::close(fd);
                             }
                         }
                     }
@@ -287,12 +310,13 @@ fn exec_server(command: &[String], env_vars: &[String]) -> Result<()> {
     // Parse environment variables
     let env_map = parse_env_vars(env_vars)?;
 
-    // Use Command::exec() which does PATH lookup
+    // Use bash -c to execute the command (handles scripts and PATH lookup)
+    let cmd_string = command.join(" ");
+
     use std::os::unix::process::CommandExt;
-    let mut cmd = std::process::Command::new(&command[0]);
-    if command.len() > 1 {
-        cmd.args(&command[1..]);
-    }
+    let mut cmd = std::process::Command::new("/bin/bash");
+    cmd.arg("-c");
+    cmd.arg(&cmd_string);
 
     // Add custom environment variables on top of inherited ones
     if !env_map.is_empty() {

@@ -197,23 +197,26 @@ end
 
 
 -- Setup multiple servers at once
-M.setup = function(servers, opts)
-    servers = servers or {}
+M.setup = function(opts)
     opts = opts or {}
 
-    -- Merge config with defaults
-    M._config = vim.tbl_deep_extend("force", M._config, opts)
+    -- Extract servers and configuration from opts
+    local servers = opts.servers or {}
+    local config = {}
 
-    -- Support both single server (old API) and multiple servers (new API)
-    if servers.command then
-        -- Single server mode (backward compatibility)
-        local name = servers.name or "default"
-        M.register(name, servers)
-    else
-        -- Multiple servers mode
-        for name, config in pairs(servers) do
-            M.register(name, config)
+    -- Copy all non-servers fields to config
+    for key, value in pairs(opts) do
+        if key ~= "servers" then
+            config[key] = value
         end
+    end
+
+    -- Merge config with defaults
+    M._config = vim.tbl_deep_extend("force", M._config, config)
+
+    -- Register all servers
+    for name, server_config in pairs(servers) do
+        M.register(name, server_config)
     end
 
     -- Setup VimLeave autocmd to stop all servers

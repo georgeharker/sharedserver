@@ -1,0 +1,23 @@
+   Compiling sharedserver v0.4.3 (/Users/geohar/Development/neovim-plugins/sharedserver/rust)
+warning: value assigned to `issues_fixed` is never read
+  --> src/cli/commands/doctor.rs:46:25
+   |
+46 |                         issues_fixed += 1;
+   |                         ^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sharedserver` (bin "sharedserver") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running tests/integration_tests.rs (target/debug/deps/integration_tests-c1d19c50a4129935)
+
+running 8 tests
+test test_admin_kill_already_stopped ... ok
+test test_admin_doctor_no_servers ... ok
+test test_environment_variables ... FAILED
+test test_server_lifecycle ... FAILED
+test test_quick_death_cleanup ... ok
+test test_admin_doctor_stale_lockfile ... FAILED
+test test_admin_kill_command ... FAILED
+test test_admin_doctor_healthy_server has been running for over 60 seconds

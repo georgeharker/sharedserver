@@ -6,10 +6,12 @@ vim.opt.runtimepath:append(vim.fn.getcwd())
 
 -- Setup the plugin with a test server configuration
 require('sharedserver').setup({
-  testserver = {
-    command = 'sleep',
-    args = {'3600'},
-    idle_timeout = '30s'
+  servers = {
+    testserver = {
+      command = 'sleep',
+      args = {'3600'},
+      idle_timeout = '30s'
+    }
   }
 })
 

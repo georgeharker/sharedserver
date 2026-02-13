@@ -78,7 +78,27 @@ pub fn clients_lockfile_path(name: &str) -> Result<PathBuf> {
     Ok(ensure_lockfile_dir()?.join(format!("{}.clients.json", name)))
 }
 
-/// Perform operation on file with exclusive lock
+/// Perform read-only operation with shared lock (allows multiple concurrent readers)
+pub fn with_shared_lock<F, R>(path: &Path, operation: F) -> Result<R>
+where
+    F: FnOnce(&mut File) -> Result<R>,
+{
+    let mut file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .with_context(|| format!("Failed to open lockfile: {:?}", path))?;
+
+    // Acquire shared lock (multiple readers allowed simultaneously)
+    flock(file.as_raw_fd(), FlockArg::LockShared)
+        .with_context(|| format!("Failed to acquire shared lock on: {:?}", path))?;
+
+    let result = operation(&mut file);
+
+    // Lock is automatically released when file is dropped
+    result
+}
+
+/// Perform operation on file with exclusive lock (single writer, no readers)
 pub fn with_lock<F, R>(path: &Path, operation: F) -> Result<R>
 where
     F: FnOnce(&mut File) -> Result<R>,
@@ -129,10 +149,10 @@ where
     Ok(())
 }
 
-/// Read server lockfile
+/// Read server lockfile with shared lock (allows concurrent reads)
 pub fn read_server_lock(name: &str) -> Result<ServerLock> {
     let path = server_lockfile_path(name)?;
-    with_lock(&path, |file| read_json(file))
+    with_shared_lock(&path, |file| read_json(file))
 }
 
 /// Write server lockfile
@@ -141,10 +161,10 @@ pub fn write_server_lock(name: &str, lock: &ServerLock) -> Result<()> {
     with_lock(&path, |file| write_json(file, lock))
 }
 
-/// Read clients lockfile
+/// Read clients lockfile with shared lock (allows concurrent reads)
 pub fn read_clients_lock(name: &str) -> Result<ClientsLock> {
     let path = clients_lockfile_path(name)?;
-    with_lock(&path, |file| read_json(file))
+    with_shared_lock(&path, |file| read_json(file))
 }
 
 /// Write clients lockfile

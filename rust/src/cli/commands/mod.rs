@@ -1,8 +1,10 @@
 pub mod check;
 pub mod debug;
 pub mod decref;
+pub mod doctor;
 pub mod incref;
 pub mod info;
+pub mod kill;
 pub mod list;
 pub mod start;
 pub mod stop;

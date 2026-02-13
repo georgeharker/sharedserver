@@ -51,11 +51,13 @@ If you need to capture your server's output for debugging, redirect it in your c
 
 ```lua
 require("sharedserver").setup({
-    myserver = {
-        command = "bash",
-        args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
-        -- or just redirect to file:
-        -- args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
+    servers = {
+        myserver = {
+            command = "bash",
+            args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
+            -- or just redirect to file:
+            -- args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
+        },
     },
 })
 ```
@@ -136,11 +138,13 @@ If manual works but sharedserver doesn't, check:
 
 **Solution**:
 ```lua
-myserver = {
-    command = "myserver",
-    env = {
-        CONFIG_PATH = vim.fn.expand("$HOME") .. "/.config/myserver",
-        API_KEY = "your-key",
+servers = {
+    myserver = {
+        command = "myserver",
+        env = {
+            CONFIG_PATH = vim.fn.expand("$HOME") .. "/.config/myserver",
+            API_KEY = "your-key",
+        },
     },
 }
 ```
@@ -163,17 +167,19 @@ Let's say `goog_ws` works manually but fails through Neovim:
 **1. Add output redirection:**
 ```lua
 require("sharedserver").setup({
-    goog_ws = {
-        command = "bash",
-        args = {
-            "-c",
-            "uvx workspace-mcp --transport streamable-http 2>&1 | tee /tmp/goog_ws.log"
+    servers = {
+        goog_ws = {
+            command = "bash",
+            args = {
+                "-c",
+                "uvx workspace-mcp --transport streamable-http 2>&1 | tee /tmp/goog_ws.log"
+            },
+            env = {
+                GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME") .. "/.cache/secrets/" .. vim.fn.expand("$USER") .. ".gcp-oauth.keys.json",
+                WORKSPACE_MCP_PORT = "8002",
+            },
+            lazy = true,
         },
-        env = {
-            GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME") .. "/.cache/secrets/" .. vim.fn.expand("$USER") .. ".gcp-oauth.keys.json",
-            WORKSPACE_MCP_PORT = "8002",
-        },
-        lazy = true,
     },
 })
 ```
@@ -209,9 +215,11 @@ Create a test server that exits after a delay:
 
 ```lua
 require("sharedserver").setup({
-    test_delayed_exit = {
-        command = "bash",
-        args = { "-c", "echo 'Starting...'; sleep 2; echo 'Exiting...'; exit 1" },
+    servers = {
+        test_delayed_exit = {
+            command = "bash",
+            args = { "-c", "echo 'Starting...'; sleep 2; echo 'Exiting...'; exit 1" },
+        },
     },
 })
 ```
@@ -278,10 +286,50 @@ exec "$@" 2>&1 | tee -a /tmp/server-debug.log
 
 Then use it:
 ```lua
-myserver = {
-    command = "/tmp/debug-wrapper.sh",
-    args = { "myserver", "--port", "8080" },
+servers = {
+    myserver = {
+        command = "/tmp/debug-wrapper.sh",
+        args = { "myserver", "--port", "8080" },
+    },
 }
+```
+
+### Admin Commands for Troubleshooting
+
+The `sharedserver` CLI provides admin commands for diagnosing and fixing issues:
+
+**Health Check and Cleanup:**
+```bash
+# Check all servers for issues (validates processes, refcounts, cleans stale lockfiles)
+sharedserver admin doctor
+
+# Check specific server
+sharedserver admin doctor myserver
+```
+
+The `doctor` command validates:
+- Server and watcher processes are actually alive
+- All client PIDs are valid
+- Refcount matches actual client count
+- State constraints are valid (Active has clients, Grace has none)
+- Automatically removes stale lockfiles for stopped servers
+
+**View Debug Logs:**
+```bash
+# Show invocation history for troubleshooting
+sharedserver admin debug myserver
+```
+
+**Force Kill Unresponsive Server:**
+```bash
+# Send SIGKILL and clean up all state (use when server won't stop normally)
+sharedserver admin kill myserver
+```
+
+**Emergency Stop:**
+```bash
+# Send SIGTERM (or SIGKILL with --force)
+sharedserver admin stop myserver --force
 ```
 
 ## Summary
@@ -289,7 +337,8 @@ myserver = {
 The key points for debugging:
 
 1. ✅ **Health check** automatically notifies you when servers die
-2. ✅ **Server output** goes to terminal - redirect it yourself if needed
-3. ✅ **Compare** manual vs sharedserver execution to find differences
-4. ✅ **Check** environment, working directory, and file descriptors
-5. ❌ **Don't expect** to capture server output from Lua - it's transparent by design
+2. ✅ **Use `admin doctor`** to validate server state and clean up issues
+3. ✅ **Server output** goes to terminal - redirect it yourself if needed
+4. ✅ **Compare** manual vs sharedserver execution to find differences
+5. ✅ **Check** environment, working directory, and file descriptors
+6. ❌ **Don't expect** to capture server output from Lua - it's transparent by design

@@ -96,7 +96,47 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
         Err(_) => return false,
     };
 
-    // Open and lock the clients file
+    // Step 1: Read clients data and release lock immediately
+    // This minimizes lock hold time and prevents blocking other operations
+    let clients_snapshot = {
+        let mut file = match OpenOptions::new()
+            .read(true)
+            .open(&clients_path)
+        {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
+
+        // Acquire shared lock for reading (allows concurrent reads)
+        if flock(file.as_raw_fd(), FlockArg::LockShared).is_err() {
+            return false;
+        }
+
+        // Read clients
+        let clients: ClientsLock = match sharedserver::core::lockfile::read_json(&mut file) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        // Lock automatically released when file is dropped
+        clients
+    };
+
+    // Step 2: Check which clients are alive WITHOUT holding any lock
+    // This prevents blocking other operations during potentially slow is_process_alive() calls
+    let mut dead_pids = Vec::new();
+    for (pid, _client_info) in &clients_snapshot.clients {
+        if !is_process_alive(*pid) {
+            dead_pids.push(*pid);
+        }
+    }
+
+    // If no dead clients, return early without acquiring write lock
+    if dead_pids.is_empty() {
+        return clients_snapshot.refcount > 0;
+    }
+
+    // Step 3: Re-acquire exclusive lock only for the update
     let mut file = match OpenOptions::new()
         .read(true)
         .write(true)
@@ -106,12 +146,11 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
         Err(_) => return false,
     };
 
-    // Acquire exclusive lock
     if flock(file.as_raw_fd(), FlockArg::LockExclusive).is_err() {
         return false;
     }
 
-    // Read clients
+    // Re-read clients in case they changed between our read and write lock acquisition
     let mut clients: ClientsLock = match sharedserver::core::lockfile::read_json(&mut file) {
         Ok(c) => c,
         Err(_) => {
@@ -120,19 +159,12 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
         }
     };
 
-    // Find dead clients
-    let mut dead_pids = Vec::new();
-    for (pid, _client_info) in &clients.clients {
-        if !is_process_alive(*pid) {
-            dead_pids.push(*pid);
-        }
-    }
-
-    // Remove dead clients and recalculate refcount from remaining clients
+    // Remove dead clients that are still in the current client list
     let mut changed = false;
     for pid in dead_pids {
-        clients.clients.remove(&pid);
-        changed = true;
+        if clients.clients.remove(&pid).is_some() {
+            changed = true;
+        }
     }
 
     // Recalculate refcount based on remaining clients
@@ -140,7 +172,7 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
         clients.refcount = clients.clients.len() as u32;
     }
 
-    // If no changes, just return current state
+    // If no changes (dead clients were already removed by another process), just return
     if !changed {
         drop(file);
         return clients.refcount > 0;
