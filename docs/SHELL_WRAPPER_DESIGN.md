@@ -2,7 +2,7 @@
 
 ## The Problem
 
-Enable third-party tools to launch servers through shareserver's refcounting system while maintaining:
+Enable third-party tools to launch servers through sharedserver's refcounting system while maintaining:
 1. **PID transparency**: Calling process gets the real server PID
 2. **stdio transparency**: stdin/stdout/stderr connect directly to server
 3. **Refcount integrity**: Automatic increment/decrement with proper cleanup
@@ -387,7 +387,7 @@ sharedserver-status [server-name]
 
 ## Conclusion
 
-The fork-watch-exec pattern provides a **transparent, efficient, and robust** solution for integrating shell-launched servers with shareserver's refcounting system.
+The fork-watch-exec pattern provides a **transparent, efficient, and robust** solution for integrating shell-launched servers with sharedserver's refcounting system.
 
 Key insight: By using `exec()` to replace the wrapper process, we achieve true transparency - the calling process never knows a wrapper existed. Combined with a detached watcher for cleanup, this gives us the best of both worlds: transparency during runtime, automatic cleanup on exit.
 

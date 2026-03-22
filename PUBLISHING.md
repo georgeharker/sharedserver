@@ -29,7 +29,7 @@ Following best practices from the reference repository ([tree-sitter-zsh](https:
 1. Log in to [crates.io](https://crates.io)
 2. Go to [Account Settings → API Tokens](https://crates.io/me)
 3. Click "New Token"
-4. Give it a descriptive name (e.g., "GitHub Actions - shareserver")
+4. Give it a descriptive name (e.g., "GitHub Actions - sharedserver")
 5. Select scopes:
    - ✅ `publish-update` (allows publishing new versions)
 6. Copy the token (you won't be able to see it again!)

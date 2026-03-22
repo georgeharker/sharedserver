@@ -1,6 +1,6 @@
-# shareserver Examples
+# sharedserver Examples
 
-This document contains various configuration examples for shareserver.
+This document contains various configuration examples for sharedserver.
 
 ## Basic Setup
 
@@ -8,7 +8,7 @@ This document contains various configuration examples for shareserver.
 
 ```lua
 return {
-    "shareserver",
+    "sharedserver",
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
         -- Setup multiple servers

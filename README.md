@@ -1,187 +1,142 @@
-# shareserver
+# sharedserver
 
 [![crates][crates]](https://crates.io/crates/sharedserver)
 
-A generic Neovim plugin for keeping server processes alive across multiple Neovim instances using reference counting with automatic grace period support.
+A shared process manager with reference counting, grace periods, and dead-client detection. Use it standalone from the command line or integrate it with Neovim for automatic server lifecycle management.
 
-## Features
+## Overview
 
-- **Multiple server management**: Manage multiple servers simultaneously with named configurations
-- **Shared server management**: One server process shared across multiple Neovim instances
-- **Reference counting**: Servers stay alive as long as at least one Neovim instance is attached
-- **Grace period support**: Servers can stay alive for a configurable period after all clients disconnect
-- **Lazy loading**: Optionally only attach to servers if they're already running
-- **Automatic lifecycle**: Servers start on VimEnter, stop on VimLeave with grace period
-- **Manual control**: Start, stop, restart, and query status of named servers
-- **Flexible configuration**: Configure command, args, working directory, and idle timeout per server
-- **Status monitoring**: Check server status and get PID/refcount/grace period info
-- **Built-in commands**: User commands are automatically created for easy server management
-- **Robust state management**: Two-lockfile architecture with stale lock cleanup and atomic operations
-
-## Why Use SharedServer?
-
-SharedServer solves a common problem: **efficiently managing long-running service processes across multiple instances of your editor or between different tools**.
-
-### Key Benefits
-
-**🔄 Reuse Servers Between Processes**
-- Start a service once (e.g., ChromaDB, Redis, development server)
-- Share it across multiple Neovim instances
-- Automatic reference counting ensures it stays alive as long as any instance needs it
-
-**⏱️ Smart Lifecycle Management**
-- Servers automatically shut down when no longer needed
-- Configurable grace periods keep services warm for quick restarts
-- Dead client detection prevents resource leaks from crashed processes
-
-**🎯 Built for Neovim**
-- Zero-configuration lifecycle hooks (`VimEnter`/`VimLeave`)
-- Automatic attachment to existing servers
-- Rich status monitoring with `:ServerStatus`
-- Optional lazy loading for expensive services
-
-**🔧 Beyond Neovim**
-- Shell script integration via `sharedserver` CLI
-- Use it as a service wrapper in any program
-- Replace manual process management or shell scripts
-- Works standalone or integrated with your editor
-
-### Example Use Cases
-
-**Replace manual server management:**
-```bash
-# Instead of this fragile pattern:
-pkill -f "python -m http.server" || true
-python -m http.server 8000 &
-# Do your work...
-pkill -f "python -m http.server"
-
-# Use sharedserver:
-sharedserver use webserver -- python -m http.server 8000
-# Do your work...
-sharedserver unuse webserver  # Server stays alive if other clients need it
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      sharedserver CLI                         │
+│                                                              │
+│   use/unuse    ┌─────────────┐   start/stop/check            │
+│  ─────────────>│  lockfiles  │<──────────────────             │
+│                │  server.json│                                │
+│   refcount++   │  clients.json│  grace period                 │
+│   refcount--   └─────────────┘  dead-client detection         │
+│                       │                                       │
+│                       ▼                                       │
+│               ┌──────────────┐                                │
+│               │ managed      │                                │
+│               │ server proc  │                                │
+│               └──────────────┘                                │
+└──────────────────────────────────────────────────────────────┘
+        ▲               ▲               ▲
+        │               │               │
+   Neovim #1       Neovim #2       shell script
+   (refcount=1)    (refcount=1)    (refcount=1)
 ```
 
-**Share expensive services:**
-```lua
--- ChromaDB takes 10s to start, costs 2GB RAM
--- Without sharedserver: Every Neovim instance starts its own (slow, wasteful)
--- With sharedserver: One instance shared by all, 30min grace period after last editor closes
-require("sharedserver").setup({
-    servers = {
-        chroma = {
-            command = "chroma",
-            args = { "run", "--path", "~/.local/share/chromadb" },
-            idle_timeout = "30m",
-        }
-    }
-})
-```
+One server process, shared across any number of clients. When the last client disconnects, an optional grace period keeps the server warm before shutdown.
 
-**Lazy-load heavy services:**
-```lua
--- Don't start expensive ML inference server until explicitly needed
-require("sharedserver").setup({
-    servers = {
-        llm_server = {
-            command = "ollama",
-            args = { "serve" },
-            lazy = true,  -- Only attach if already running
-        }
-    }
-})
--- Start manually when needed: :ServerStart llm_server
-```
+## Standalone CLI
 
-### Why Not Just Use systemd/launchd?
-
-System services (systemd, launchd, etc.) are great for **always-on** infrastructure, but SharedServer is designed for **on-demand development services**:
-
-| System Service | SharedServer |
-|----------------|--------------|
-| Always running, even when unused | Starts when needed, stops when done |
-| Requires root/system configuration | User-space, no sudo needed |
-| Global configuration files | Per-project configuration in your editor config |
-| Manual start/stop commands | Automatic lifecycle tied to your workflow |
-| One instance system-wide | Multiple isolated instances per project possible |
-
-**When to use system services:**
-- Production servers
-- Always-on infrastructure (databases, web servers)
-- Services needed by multiple users
-
-**When to use SharedServer:**
-- Development databases (ChromaDB, Redis for testing)
-- Project-specific dev servers
-- Heavy services you only need occasionally
-- Services tied to your editor workflow
-- When you want automatic cleanup after work
-
-## Requirements
-
-- Neovim 0.5+
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
-- Rust toolchain (for building sharedserver) - install from [rustup.rs](https://rustup.rs)
-- **macOS**: Built-in `flock` via Rust (no additional dependencies)
-- **Linux**: Built-in `flock` via Rust (no additional dependencies)
-
-## Building from Source
-
-The plugin requires building the Rust-based `sharedserver` binary:
-
-```bash
-cd shareserver/rust
-cargo build --release
-```
-
-The binary will be available at `rust/target/release/sharedserver`. The plugin will automatically find it in this location.
-
-### Installation via Cargo (Recommended)
-
-The simplest way to install `sharedserver` for use with the Neovim plugin:
+### Install
 
 ```bash
 cargo install sharedserver
 ```
 
-Or install from the repository:
+Or build from source:
 
 ```bash
-# From repository root
-cargo install --path rust
+git clone https://github.com/georgeharker/sharedserver
+cd sharedserver/rust
+cargo build --release
+# binary at rust/target/release/sharedserver
 ```
 
-Both methods install the binary to `~/.cargo/bin/sharedserver`, which should be in your PATH. This is sufficient for Neovim plugin usage.
-
-### System-wide Installation (Optional)
-
-Install system-wide if you want to use `sharedserver` **outside of Neovim** (e.g., in shell scripts, cron jobs, or other programs):
+### Quick Start
 
 ```bash
-# Linux
-sudo cp rust/target/release/sharedserver /usr/local/bin/
+# Start or attach to a server (starts if not running)
+sharedserver use myserver -- python -m http.server 8000
 
-# macOS with Homebrew
-sudo cp rust/target/release/sharedserver /opt/homebrew/bin/
+# Detach when done (server stays alive if other clients are attached)
+sharedserver unuse myserver
 
-# User-local installation (no sudo)
-cp rust/target/release/sharedserver ~/.local/bin/
+# Check status
+sharedserver info myserver
+sharedserver list
 ```
 
-**Why system-wide?**
-- Use `sharedserver` CLI from any shell script
-- Integrate with systemd, cron, or other system services
-- Share servers between different tools (not just Neovim)
+The `use` command increments the refcount (starting the server if needed), and `unuse` decrements it. When refcount hits zero, the server enters a grace period or shuts down immediately.
 
-The plugin searches for `sharedserver` in the following order:
-1. `<plugin-dir>/rust/target/release/sharedserver` (default after build)
-2. `~/.local/bin/sharedserver`
-3. `/usr/local/bin/sharedserver`
-4. `/opt/homebrew/bin/sharedserver`
+### Grace Periods
+
+Keep servers warm after the last client disconnects:
+
+```bash
+# Start with a 30-minute grace period
+sharedserver use myserver --grace-period 30m -- ./expensive-server
+
+# All clients disconnect -> server survives 30 minutes
+# New client attaches during grace -> grace cancelled, back to active
+# Grace expires -> server receives SIGTERM
+```
+
+Duration formats: `30s`, `5m`, `1h`, `2h30m`.
+
+### Shell Script Integration
+
+```bash
+#!/bin/bash
+# Ensure ChromaDB is running, share it across scripts
+sharedserver use chroma --grace-period 1h -- chroma run --path ~/.local/share/chromadb
+
+# Do work...
+curl http://localhost:8000/api/v1/heartbeat
+
+# Detach when done
+sharedserver unuse chroma
+```
+
+Replace fragile `pkill`/`pgrep` patterns:
+
+```bash
+# Instead of this:
+pkill -f "python -m http.server" || true
+python -m http.server 8000 &
+# ...work...
+pkill -f "python -m http.server"
+
+# Use sharedserver:
+sharedserver use webserver -- python -m http.server 8000
+# ...work...
+sharedserver unuse webserver  # server stays alive if others need it
+```
+
+### CLI Commands
+
+**Everyday commands:**
+
+| Command | Description |
+|---------|-------------|
+| `use <name> [-- <cmd> [args...]]` | Attach to server (starts if needed) |
+| `unuse <name>` | Detach from server |
+| `list` | Show all managed servers |
+| `info <name> [--json]` | Server details (formatted or JSON) |
+| `check <name>` | Test if server exists (exit: 0=active, 1=grace, 2=stopped) |
+| `completion <shell>` | Generate shell completions (bash/zsh/fish) |
+
+**Admin commands** (troubleshooting):
+
+| Command | Description |
+|---------|-------------|
+| `admin start <name> --pid <pid> -- <cmd>` | Manually register a server |
+| `admin stop <name> [--force]` | Emergency stop (SIGTERM) |
+| `admin incref <name> --pid <pid>` | Manual refcount increment |
+| `admin decref <name> --pid <pid>` | Manual refcount decrement |
+| `admin debug <name>` | Show invocation logs |
+| `admin doctor [name]` | Validate state, clean stale lockfiles |
+| `admin kill <name>` | Force kill (SIGKILL) and clean up |
+
+**PID behavior:**
+- User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
+- Admin commands: `--pid` defaults to current process
 
 ### Shell Completions
-
-Generate shell completion scripts for `sharedserver`:
 
 ```bash
 # Bash
@@ -189,19 +144,80 @@ sharedserver completion bash > ~/.local/share/bash-completion/completions/shared
 
 # Zsh
 sharedserver completion zsh > ~/.zsh/completions/_sharedserver
-# Then add to ~/.zshrc: fpath=(~/.zsh/completions $fpath)
 
 # Fish
 sharedserver completion fish > ~/.config/fish/completions/sharedserver.fish
 ```
 
-## Installation
+## How It Works
+
+### Two-Lockfile Architecture
+
+Each server uses two lockfiles (default: `$XDG_RUNTIME_DIR/sharedserver/` or `/tmp/sharedserver/`):
+
+- **`<name>.server.json`** -- Server state: PID, command, start time, grace period, watcher PID. Created on start, deleted on final shutdown.
+- **`<name>.clients.json`** -- Client tracking: refcount, map of client PIDs with timestamps. Created on first attach, deleted when refcount hits zero (triggers grace period).
+
+Override location with `SHAREDSERVER_LOCKDIR`.
+
+### Three States
+
+```
+                 use/incref               unuse/decref (refcount=0)
+  STOPPED ─────────────────> ACTIVE ──────────────────────────> GRACE
+     ^                        ^                                   │
+     │                        │          use/incref               │
+     │                        └───────────────────────────────────┤
+     │                                   (grace cancelled)        │
+     │                                                            │
+     └────────────────────────────────────────────────────────────┘
+                              grace expires → SIGTERM → cleanup
+```
+
+- **ACTIVE**: `clients.json` exists (refcount > 0), server running normally
+- **GRACE**: `clients.json` deleted (refcount = 0), server alive but countdown running
+- **STOPPED**: Both files deleted, server terminated
+
+### Dead Client Detection
+
+A watcher process polls every 5 seconds, checking each client PID:
+- Linux: `/proc/<pid>` existence
+- macOS: `proc_pidinfo()` system call
+
+Dead clients are automatically removed from the refcount. If all clients die (e.g., crash), the grace period starts automatically. This prevents refcount leaks.
+
+### Lifecycle Timeline
+
+```
+T+0:   First client attaches  → server starts, refcount=1
+T+5:   Second client attaches → refcount=2
+T+10:  First client detaches  → refcount=1
+T+15:  Second client detaches → refcount=0, GRACE starts (e.g., 30m)
+T+20:  Third client attaches  → refcount=1, grace cancelled
+T+25:  Third client detaches  → refcount=0, GRACE starts again
+T+55:  Grace expires           → SIGTERM, cleanup
+```
+
+---
+
+## Neovim Integration
+
+For the full guide — building from source, health monitoring, status UI details,
+manual Lua usage, lazy loading, notification config — see
+[docs/NEOVIM.md](docs/NEOVIM.md).
+
+### Requirements
+
+- Neovim 0.5+
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+
+### Installation
 
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-    "georgeharker/shareserver",
+    "georgeharker/sharedserver",
     dependencies = { "nvim-lua/plenary.nvim" },
     build = "cargo install sharedserver --force",
     config = function()
@@ -210,689 +226,147 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
                 chroma = {
                     command = "chroma",
                     args = { "run", "--path", "~/.local/share/chromadb" },
-                    idle_timeout = "30m",  -- Keep alive 30 minutes after last client
+                    idle_timeout = "30m",
                 },
-                redis = {
-                    command = "redis-server",
-                    lazy = true,  -- Only attach if already running
-                }
             }
         })
     end
 }
 ```
 
-Or for local development:
+The plugin searches for the `sharedserver` binary in order:
+1. `<plugin-dir>/rust/target/release/sharedserver`
+2. `~/.cargo/bin/sharedserver` (via PATH)
+3. `~/.local/bin/sharedserver`
+4. `/usr/local/bin/sharedserver`
+5. `/opt/homebrew/bin/sharedserver`
 
-```lua
-{
-    dir = "~/Development/neovim-plugins/shareserver",
-    dependencies = { "nvim-lua/plenary.nvim" },
-    build = "cargo install --path rust --force",
-    config = function()
-        require("sharedserver").setup({
-            servers = {
-                -- your servers
-            }
-        })
-    end
-}
-```
+### What the Plugin Does
 
-See [EXAMPLES.md](./EXAMPLES.md) for more configuration examples and usage patterns.
+On `VimEnter`:
+- Non-lazy servers: checks if running → attaches (incref) or starts
+- Lazy servers: attaches if running, otherwise does nothing
 
-## Configuration
+On `VimLeave`:
+- Automatically decrements refcount for all attached servers
 
-### Setup Options
-
-The `setup()` function accepts a single options table:
-
-```lua
-require("sharedserver").setup({
-    servers = { ... },
-    commands = true,
-    notify = { ... }
-})
-```
-
-Options:
-- **servers** (required): A table of server configurations (see below)
-- **commands** (default: `true`): Whether to automatically create user commands
-- **notify**: Notification preferences (see below)
-
-### Notification Configuration
-
-Control when the plugin shows notifications:
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        -- your servers...
-    },
-    commands = true,
-    notify = {
-        on_start = true,   -- Notify when starting a new server (default: true)
-        on_attach = false, -- Notify when attaching to existing (default: false)
-        on_stop = false,   -- Notify when stopping a server (default: false)
-        on_error = true,   -- Always notify on errors (default: true)
-    }
-})
-```
-
-By default, the plugin is quiet during normal operations (attach/detach) and only notifies when:
-- A new server is started for the first time
-- An error occurs
-- A server exits unexpectedly (non-zero exit code)
+This means multiple Neovim instances share the same server process, and the server survives editor restarts within the grace period.
 
 ### Server Configuration
 
 ```lua
 require("sharedserver").setup({
     servers = {
-        -- Server name as key
-        chroma = {
-            command = "chroma",
-            args = { "run", "--path", "~/.local/share/chromadb" },
-            lazy = false,  -- Start immediately (default)
-            idle_timeout = "1h",  -- Keep alive 1 hour after last client
-        },
-        redis = {
-            command = "redis-server",
-            args = { "--port", "6379" },
-            lazy = true,  -- Only attach if already running, don't start
-        },
-        webserver = {
-            command = "python",
-            args = { "-m", "http.server", "8080" },
-            working_dir = vim.fn.getcwd(),
-            idle_timeout = "30m",
-            on_start = function(pid)
-                vim.notify("Web server started: http://localhost:8080")
-            end,
-        },
-    }
-})
-```
-
-### Disable Commands
-
-To disable automatic command creation:
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        chroma = {
-            command = "chroma",
-            args = { "run", "--path", "~/.local/share/chromadb" },
+        myserver = {
+            command = "myserver",           -- required: command to run
+            args = { "--port", "8080" },    -- optional: arguments
+            env = { DEBUG = "1" },          -- optional: extra env vars (additive)
+            working_dir = "/path/to/dir",   -- optional: working directory
+            log_file = "/tmp/myserver.log", -- optional: capture stdout/stderr
+            lazy = false,                   -- optional: only attach if already running
+            idle_timeout = "30m",           -- optional: grace period after last client
+            on_start = function(pid) end,   -- optional: callback on start
+            on_exit = function(code) end,   -- optional: callback on exit
         },
     },
-    commands = false
+    commands = true,  -- create user commands (default: true)
+    notify = {
+        on_start = true,   -- notify when starting new server
+        on_attach = false,  -- notify when attaching to existing
+        on_stop = false,    -- notify when stopping
+        on_error = true,    -- always notify on errors
+    },
 })
 ```
 
-### Server Options
+### Commands
 
-For each server:
+| Command | Description |
+|---------|-------------|
+| `:ServerStart <name>` | Start a named server |
+| `:ServerStop <name>` | Stop a named server |
+| `:ServerRestart <name>` | Restart a named server |
+| `:ServerStatus [name]` | Show status in floating window |
+| `:ServerList` | List all registered servers |
+| `:ServerStopAll` | Stop all servers |
 
-- **command** (required): Command to execute (can be full path or command in PATH)
-- **args** (optional, default: `{}`): Arguments to pass to the command
-- **env** (optional, default: `{}`): Environment variables to set for the server process
-    - Table format: `{KEY = "value", KEY2 = "value2"}`
-    - Variables are **added to** (not replacing) the inherited environment
-    - Useful for: API keys, debug flags, custom paths, feature toggles
-- **log_file** (optional, default: `nil`): Path to log file for server stdout/stderr
-    - When specified, server output is redirected to this file for debugging
-    - stdin is always redirected to `/dev/null` (required for detached servers)
-    - Useful for: debugging server startup issues, monitoring server output
-    - Example: `log_file = "/tmp/myserver.log"`
-- **lazy** (optional, default: `false`): If `true`, only attach to server if already running, don't start a new one
-- **working_dir** (optional, default: `nil`): Working directory for the server
-- **idle_timeout** (optional, default: `nil`): Grace period duration after last client disconnects (e.g., `"30m"`, `"1h"`, `"2h30m"`)
-- **on_start** (optional): Callback function called with `(pid)` when server starts
-- **on_exit** (optional): Callback function called with `(exit_code)` when server exits
-
-### Lazy Loading
-
-The `lazy` option is useful for servers that:
-- You want to share between projects but not start automatically
-- Might be started by external tools
-- Are expensive to start and should only run when needed
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        expensive_db = {
-            command = "heavy-database-server",
-            lazy = true,  -- Only attach if already running
-        },
-    }
-})
-
--- Later, manually start when needed:
-vim.keymap.set("n", "<leader>sd", function()
-    require("sharedserver").start("expensive_db")
-end, { desc = "Start expensive database" })
-```
-
-### Environment Variables
-
-Pass custom environment variables to server processes:
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        myapi = {
-            command = "api-server",
-            args = { "--port", "8080" },
-            env = {
-                API_KEY = "secret123",
-                DEBUG = "1",
-                LOG_LEVEL = "info",
-                CUSTOM_PATH = "/opt/myapp"
-            },
-            log_file = "/tmp/myapi.log",  -- Optional: capture server output
-        },
-    }
-})
-```
-
-Environment variables are **added to** the inherited environment (not replacing it).
-The server receives all variables from the parent process plus your custom ones.
-
-**CLI Usage:**
-```bash
-sharedserver use myserver \
-    --env DEBUG=1 \
-    --env API_KEY=secret123 \
-    --log-file /tmp/myserver.log \
-    myserver -- /path/to/server
-```
-
-## API
-
-All API functions are available through `require("sharedserver")`:
-
-```lua
-local sharedserver = require("sharedserver")
-
--- Setup servers
-sharedserver.setup({
-    servers = { ... },
-    commands = true,
-    notify = { ... }
-})
-
--- Register a server after initial setup
-sharedserver.register(name, config)
-
--- Manually control servers
-sharedserver.start(name)
-sharedserver.stop(name)
-sharedserver.restart(name)
-sharedserver.stop_all()
-
--- Query server status
-local status = sharedserver.status(name)
-local all_statuses = sharedserver.status_all()
-local server_names = sharedserver.list()
-```
-
-## Commands
-
-When commands are enabled (default), the following user commands are automatically created:
-
-- `:ServerStart <name>` - Start a named server
-- `:ServerStop <name>` - Stop a named server
-- `:ServerRestart <name>` - Restart a named server
-- `:ServerStatus [name]` - Show server status in a floating window (all servers if no name given)
-- `:ServerList` - List all registered servers (same as `:ServerStatus` with no args)
-- `:ServerStopAll` - Stop all servers
-
-The `:ServerStatus` command displays a rich floating window with:
-- Server name and running status (●/○)
-- PID, refcount, and uptime for running servers
-- Attached/detached state
-- Lazy mode indicator
-- Full command details when viewing a specific server
-
-Press `q` or `<Esc>` to close the status window.
-
-**Example output of `:ServerStatus`:**
-```
-╭──────────────────────────── Shared Servers ─────────────────────────────╮
-│ NAME                 STATUS       PID      REFS     UPTIME               │
-│ ────────────────────────────────────────────────────────────────────────│
-│ ● chroma             running      1234     2        2h 15m               │
-│ ● redis              running      5678     1        45m 32s              │
-│ ⏳ postgres           GRACE        9012     0        3h 22m               │
-│ ○ myserver           stopped      -        -        - [lazy]             │
-│                                                                           │
-│ Press q or <Esc> to close                                                │
-╰───────────────────────────────────────────────────────────────────────────╯
-```
-
-Status indicators:
+`:ServerStatus` shows a floating window with status indicators:
 - `●` Running with active clients (refcount > 0)
 - `⏳` Grace period (refcount = 0, waiting for timeout)
 - `○` Stopped
 
-To disable command creation, pass `{ commands = false }` to `setup()`.
-
-## Detailed API Reference
-
-### `setup(opts)`
-
-Initialize and register servers. Accepts a single options table with:
-- **servers**: A table of named server configurations
-- **commands** (default: `true`): Whether to create user commands
-- **notify**: Notification preferences (see Notification Configuration)
-
-Example:
-```lua
-require("sharedserver").setup({
-    servers = {
-        chroma = { command = "chroma", args = { "run" } },
-    },
-    commands = true,
-    notify = {
-        on_start = true,
-        on_attach = false,
-    }
-})
-```
-
-### `register(name, config)`
-
-Register a new server after initial setup.
+### Lua API
 
 ```lua
-require("sharedserver").register("newserver", {
-    command = "myserver",
-    args = { "--port", "9000" },
-})
+local ss = require("sharedserver")
+
+ss.setup({ servers = { ... } })   -- initialize
+ss.register(name, config)          -- add server after setup
+ss.start(name)                     -- manual start
+ss.stop(name)                      -- manual stop
+ss.restart(name)                   -- restart
+ss.stop_all()                      -- stop all servers
+ss.status(name)                    -- { running, pid, refcount, attached, lazy }
+ss.status_all()                    -- all server statuses
+ss.list()                          -- registered server names
 ```
 
-### `start(name)`
-
-Manually start a named server. Returns `true` on success, `false` on failure.
-
-```lua
-local success = require("sharedserver").start("chroma")
-```
-
-### `stop(name)`
-
-Manually stop a named server.
-
-```lua
-require("sharedserver").stop("chroma")
-```
-
-### `stop_all()`
-
-Stop all registered servers.
-
-```lua
-require("sharedserver").stop_all()
-```
-
-### `restart(name)`
-
-Restart a named server.
-
-```lua
-require("sharedserver").restart("chroma")
-```
-
-### `status(name)`
-
-Get the status of a named server.
-
-```lua
-local status = require("sharedserver").status("chroma")
-if status.running then
-    print("Server running with PID: " .. status.pid)
-    print("Reference count: " .. status.refcount)
-    print("Attached: " .. tostring(status.attached))
-    print("Lazy: " .. tostring(status.lazy))
-else
-    print("Server not running")
-end
-```
-
-### `status_all()`
-
-Get status of all registered servers.
-
-```lua
-local statuses = require("sharedserver").status_all()
-for name, status in pairs(statuses) do
-    print(name, status.running)
-end
-```
-
-### `list()`
-
-Get a list of all registered server names.
-
-```lua
-local servers = require("sharedserver").list()
-for _, name in ipairs(servers) do
-    print("Registered server: " .. name)
-end
-```
-
-## How It Works
-
-The plugin uses **sharedserver** (Rust-based, bundled in `rust/target/release/`) for robust server lifecycle management with a two-lockfile architecture and automatic dead client detection.
-
-### Architecture
-
-**Two lockfiles per server** (default location: `$XDG_RUNTIME_DIR/sharedserver/` or `/tmp/sharedserver/`):
-- **`<name>.server.json`**: Persistent server state (PID, command, start time, grace period settings)
-- **`<name>.clients.json`**: Active client tracking (refcount, client PIDs with metadata)
-
-**Three states:**
-- **ACTIVE**: `clients.json` exists (refcount > 0), server running normally
-- **GRACE**: `clients.json` deleted (refcount = 0) but server still alive, waiting for timeout or new client
-- **STOPPED**: Both files deleted, server terminated
-
-### Lifecycle Flow
-
-1. **Neovim starts** (`VimEnter`):
-   - Plugin checks if server exists using `sharedserver check <name>`
-   - For non-lazy servers:
-     - If exists: Increments refcount via `sharedserver incref` (attaches to existing)
-     - If not: Starts via `sharedserver start <name> -- <command> <args>`
-   - For lazy servers:
-     - If exists: Attaches (increments refcount)
-     - If not: Does nothing (waits for manual start)
-
-2. **Multiple Neovim instances**:
-   - Each instance calls `sharedserver incref <name>` on startup
-   - Refcount tracked in `clients.json` (e.g., 3 instances = refcount 3)
-   - Server process itself is registered as a client
-
-3. **Neovim exits** (`VimLeave`):
-   - Plugin calls `sharedserver decref <name>` automatically
-   - Refcount decremented
-   - If refcount reaches 0:
-     - `clients.json` deleted → Server enters **GRACE period**
-     - Watcher starts countdown timer (e.g., 30 minutes)
-     - **If new client attaches**: Grace cancelled, back to ACTIVE
-     - **If grace expires**: Server receives TERM signal, both lockfiles deleted
-
-4. **Dead client detection** (automatic):
-   - Watcher polls every 5 seconds
-   - Checks each client PID with health checks (Linux: `/proc`, macOS: `proc_pidinfo()`)
-   - Automatically removes dead clients and recalculates refcount
-   - Prevents refcount leaks from crashed Neovim instances
-   - If all clients die: Triggers grace period automatically
-
-### Grace Period Example
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        myserver = {
-            command = "myserver",
-            idle_timeout = "30m",  -- Stay alive 30 min after last client
-        }
-    }
-})
-```
-
-Timeline:
-- T+0: First nvim starts → Server launched, refcount=1
-- T+5: Second nvim starts → refcount=2
-- T+10: First nvim exits → refcount=1
-- T+15: Second nvim exits → refcount=0, enter GRACE period (30min countdown)
-- T+20: Third nvim starts → refcount=1, grace cancelled, back to ACTIVE
-- T+25: Third nvim exits → refcount=0, enter GRACE again
-- T+55: Grace expires (30min after T+25) → Server terminated
-
-## Use Cases
-
-- **Database servers**: ChromaDB, Redis, PostgreSQL for development
-- **Language servers**: Custom LSP servers, code analysis tools
-- **Development servers**: HTTP servers, WebSocket servers
-- **Background processes**: File watchers, sync daemons
-- **Expensive services**: Large ML models, heavy databases (use `lazy = true`)
-
-For detailed configuration examples and usage patterns, see [EXAMPLES.md](./EXAMPLES.md).
-
-## Shell Integration
-
-The `rust/target/release/sharedserver` binary allows shell scripts and other programs to participate in the shared server lifecycle.
-
-### sharedserver Commands
-
-The sharedserver binary provides a clean command-line interface for managing shared servers:
-
-**Everyday Commands:**
-- `use <name> [-- <command> [args...]]` - Attach to server (starts if needed)
-- `unuse <name>` - Detach from server
-- `list` - Show all managed servers
-- `info <name> [--json]` - Get server details (formatted or JSON)
-- `check <name>` - Test if server exists (exit codes: 0=active, 1=grace, 2=stopped)
-- `completion <shell>` - Generate shell completions (bash/zsh/fish)
-
-**Admin Commands** (for troubleshooting):
-- `admin start <name> --pid <pid> -- <command> [args...]` - Manually start server
-- `admin stop <name> [--force]` - Emergency stop (sends SIGTERM)
-- `admin incref <name> --pid <pid>` - Manually increment refcount
-- `admin decref <name> --pid <pid>` - Manually decrement refcount
-- `admin debug <name>` - Show invocation logs
-- `admin doctor [name]` - Validate server state and clean up stale lockfiles
-- `admin kill <name>` - Force kill server process (SIGKILL) and clean up state
-
-**PID Behavior:**
-- User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
-- Admin commands: `--pid` defaults to current process (must be specified)
-
-### Examples
-
-```bash
-# Start or attach to a server
-sharedserver use myserver -- python -m http.server 8000
-
-# Detach from server
-sharedserver unuse myserver
-
-# Check server status
-sharedserver check myserver
-sharedserver info myserver
-
-# List all servers
-sharedserver list
-
-# Emergency stop (admin)
-sharedserver admin stop myserver --force
-
-# Validate all servers and clean up stale lockfiles
-sharedserver admin doctor
-
-# Check specific server health
-sharedserver admin doctor myserver
-
-# Force kill unresponsive server
-sharedserver admin kill myserver
-```
-
-### Two-Lockfile Architecture
-
-Serverctl uses a two-lockfile design for robust lifecycle management:
-
-- **`<name>.server.json`**: Persistent while server is running
-  - Contains: PID, command, start time, grace period settings, watcher PID
-  - Created when server starts
-  - Deleted only when server truly dies (after grace period)
-
-- **`<name>.clients.json`**: Exists only while clients are connected (refcount > 0)
-  - Contains: refcount, map of client PIDs to metadata (attached timestamp, custom metadata)
-  - Created when first client attaches (or when server starts with itself as first client)
-  - Deleted when last client dies or decref's (triggers grace period)
-  - Watcher automatically removes dead client PIDs every 5 seconds
-
-### Grace Period
-
-When the last client decrements refcount to 0, the server enters a **grace period** instead of immediately shutting down:
-
-```bash
-# Start server with 30-minute grace period
-sharedserver start --grace-period 30m opencode -- opencode serve --port 4097
-
-# Or 1 hour grace period
-sharedserver start --grace-period 1h myserver -- ./server.sh
-```
-
-**Grace period flow:**
-1. Last client decrefs or dies → `clients.json` deleted
-2. Watcher enters GRACE mode, starts countdown timer (e.g., 30 minutes)
-3. **If new client increfs during grace**: `clients.json` recreated, timer cancelled, back to ACTIVE
-4. **If grace expires**: Watcher sends SIGTERM, waits 5s, sends SIGKILL if needed, `server.json` deleted
-
-### Shell Script Usage
-
-**Requirements:**
-- Rust toolchain (see Building from Source section)
-
-**Basic usage:**
-
-```bash
-# Check if server exists
-if ! sharedserver check opencode; then
-    # Start server with 30-minute grace period
-    sharedserver start --grace-period 30m opencode -- opencode serve --port 4097 &
-    sleep 1  # Wait for startup
-fi
-
-# Register as client (optional - for tracking only)
-sharedserver incref opencode --metadata "shell-script-$$"
-
-# Use server...
-curl http://localhost:4097/health
-
-# Unregister when done
-sharedserver decref opencode
-```
-
-### Neovim Integration
-
-**The plugin automatically uses sharedserver** - no manual configuration needed:
-
-```lua
-require("sharedserver").setup({
-    servers = {
-        opencode = {
-            command = "opencode",
-            args = { "serve", "--port", "4097" },
-            idle_timeout = "30m",  -- Grace period after all clients disconnect
-        }
-    }
-})
-```
-
-**What happens internally:**
-- Plugin starts server with: `sharedserver start --grace-period 30m opencode -- opencode serve --port 4097`
-- Server survives 30 minutes after all Neovim instances close
-- Auto-decref when Neovim exits
-- Grace period can be cancelled if a new client attaches
-- Dead clients are automatically cleaned up by the watcher
-
-**Lockfile location:**
-- Default: `$XDG_RUNTIME_DIR/sharedserver/` or `/tmp/sharedserver/`
-- `<name>.server.json` - Server state
-- `<name>.clients.json` - Client refcount
-- Set `SHAREDSERVER_LOCKDIR` environment variable to override
-
-**Advanced: Manual sharedserver usage from Lua**
-
-If you need to call sharedserver directly (e.g., for custom workflows):
-
-```lua
-local sharedserver = vim.fn.stdpath("config") .. "/../path/to/rust/target/release/sharedserver"
-
--- Check if server exists
-local result = vim.fn.system({sharedserver, "check", "myserver"})
-if vim.v.shell_error == 0 then
-    print("Server is running")
-end
-
--- Get server info as JSON
-local json = vim.fn.system({sharedserver, "info", "myserver"})
-local info = vim.fn.json_decode(json)
-print("PID:", info.pid, "Status:", info.status, "Refcount:", info.refcount)
-```
-
-## Debugging
-
-### Health Check Command
-
-Run `:checkhealth sharedserver` in Neovim to verify your setup:
+### Health Check
 
 ```vim
 :checkhealth sharedserver
 ```
 
-This checks:
-- ✓ sharedserver binary is installed and accessible
-- ✓ Binary version information
-- ✓ Lock directory is accessible and writable
-- ✓ Plugin API is loaded correctly
-- ✓ Current status of configured servers
+Verifies binary installation, lock directory access, and server status.
 
-### Automatic Health Monitoring
+## Use Cases
 
-The plugin automatically monitors servers for 3 seconds after startup. If a server exits immediately, you'll receive an error notification:
+**Development databases** -- ChromaDB, Redis, PostgreSQL shared across editor instances with grace periods for quick restarts.
 
-```
-Error: sharedserver: 'myserver' died unexpectedly after start
-```
+**Project dev servers** -- frontend/backend servers that survive editor restarts.
 
-This helps catch configuration issues that would otherwise fail silently.
+**Expensive services** -- ML inference servers with `lazy = true`, started only when needed.
 
-### Capturing Server Output
+**CI/test infrastructure** -- shell scripts managing shared test services with automatic cleanup.
 
-**Important:** Server stdout/stderr go directly to Neovim's terminal by design (transparency). To capture output for debugging, redirect it in your command:
+### Why Not systemd/launchd?
+
+| System Service | sharedserver |
+|----------------|--------------|
+| Always running | Starts when needed, stops when done |
+| Requires root/system config | User-space, no sudo |
+| Global config files | Per-project config |
+| Manual start/stop | Automatic lifecycle |
+| One instance system-wide | Multiple isolated instances |
+
+Use system services for production/always-on infrastructure. Use sharedserver for on-demand development services tied to your workflow.
+
+## Debugging
+
+### Capture Server Output
 
 ```lua
-require("sharedserver").setup({
-    servers = {
-        myserver = {
-            command = "bash",
-            args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
-            -- or: args = { "-c", "myserver > /tmp/myserver.log 2>&1" },
-        },
-    }
-})
+-- Option 1: log_file option
+{
+    command = "myserver",
+    log_file = "/tmp/myserver.log",
+}
+
+-- Option 2: shell redirect
+{
+    command = "bash",
+    args = { "-c", "myserver 2>&1 | tee /tmp/myserver.log" },
+}
 ```
-
-Then check `/tmp/myserver.log` for server output.
-
-**See [DEBUGGING.md](docs/DEBUGGING.md) for comprehensive troubleshooting guide.**
 
 ### Common Issues
 
-**Server exits immediately:**
-1. Redirect server output to a file to see error messages
-2. Compare with manually running the command in your shell
-3. Check environment variables (especially PATH)
-4. Verify file paths are absolute, not relative
-5. Check if server requires TTY or stdin
+- **Server exits immediately**: capture output with `log_file`, check environment, use absolute paths
+- **Command not found**: use absolute path in `command`
+- **Port in use**: check `:ServerStatus`, `sharedserver list`, or `lsof -i :PORT`
+- **Stale lockfiles**: `sharedserver admin doctor` to validate and clean up
 
-**Command not found:**
-- Use absolute path: `command = "/usr/local/bin/myserver"`
-- Or ensure command is in Neovim's PATH
-
-**Environment variables not working:**
-- Use `vim.fn.expand()` for paths with `~` or `$VAR`
-- Example: `vim.fn.expand("$HOME") .. "/.config/app"`
-
-**Port already in use:**
-- Check if another instance is running: `:ServerStatus`
-- Stop it: `:ServerStop myserver`
-- Or check system: `lsof -i :PORT`
+See [DEBUGGING.md](docs/DEBUGGING.md) for the full troubleshooting guide, and [EXAMPLES.md](./EXAMPLES.md) for more configuration patterns.
 
 ## License
 

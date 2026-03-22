@@ -1,6 +1,6 @@
-# Shell Tools for shareserver
+# Shell Tools for sharedserver
 
-This directory contains shell tools that allow non-Neovim processes to participate in the shareserver lifecycle with **grace period support**.
+This directory contains shell tools that allow non-Neovim processes to participate in the sharedserver lifecycle with **grace period support**.
 
 ## Overview
 
