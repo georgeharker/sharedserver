@@ -99,10 +99,7 @@ fn check_and_cleanup_dead_clients(name: &str) -> bool {
     // Step 1: Read clients data and release lock immediately
     // This minimizes lock hold time and prevents blocking other operations
     let clients_snapshot = {
-        let mut file = match OpenOptions::new()
-            .read(true)
-            .open(&clients_path)
-        {
+        let mut file = match OpenOptions::new().read(true).open(&clients_path) {
             Ok(f) => f,
             Err(_) => return false,
         };

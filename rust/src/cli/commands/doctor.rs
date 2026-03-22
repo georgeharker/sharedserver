@@ -71,7 +71,7 @@ fn check_server(name: &str) -> Result<()> {
             return Ok(());
         }
     };
-    
+
     // Read clients lock early if server is running (avoid multiple reads later)
     let clients_lock_snapshot = if state == ServerState::Active {
         read_clients_lock(name).ok()

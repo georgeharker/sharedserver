@@ -191,6 +191,29 @@ M._sharedserver_decref = function(name)
     return true, nil
 end
 
+-- Get all servers known to the sharedserver daemon (including externally-started ones)
+-- Returns a table of name → info (from sharedserver list --json), or {} on error.
+M._get_all_daemon_servers = function()
+    local stdout, stderr, exit_code = M._call_sharedserver({"list", "--json"})
+
+    if exit_code ~= 0 or not stdout or stdout == "" then
+        return {}
+    end
+
+    local ok, parsed = pcall(vim.fn.json_decode, stdout)
+    if not ok or type(parsed) ~= "table" then
+        return {}
+    end
+
+    local result = {}
+    for _, srv in ipairs(parsed) do
+        if srv.name then
+            result[srv.name] = srv
+        end
+    end
+    return result
+end
+
 -- ============================================================================
 -- End of sharedserver Integration
 -- ============================================================================
@@ -661,12 +684,27 @@ M._show_status_float = function(server_name)
 
         M._create_float(lines, string.format(" Server: %s ", server_name))
     else
-        -- Show all servers
-        local statuses = M.status_all()
-        local names = vim.tbl_keys(statuses)
-        table.sort(names)
+        -- Show all servers: merge registered (M._servers) with daemon-known servers
+        local daemon_servers = M._get_all_daemon_servers()
 
-        if #names == 0 then
+        -- Build union of all names
+        local all_names = {}
+        local seen = {}
+        for name, _ in pairs(M._servers) do
+            if not seen[name] then
+                table.insert(all_names, name)
+                seen[name] = true
+            end
+        end
+        for name, _ in pairs(daemon_servers) do
+            if not seen[name] then
+                table.insert(all_names, name)
+                seen[name] = true
+            end
+        end
+        table.sort(all_names)
+
+        if #all_names == 0 then
             lines = { "No servers registered" }
             M._create_float(lines, " Shared Servers ")
             return
@@ -677,34 +715,62 @@ M._show_status_float = function(server_name)
         table.insert(lines, string.rep("─", 68))
 
         -- Server list
-        for _, name in ipairs(names) do
-            local status = statuses[name]
-            local server = M._servers[name]
+        for _, name in ipairs(all_names) do
+            local is_registered = M._servers[name] ~= nil
+            local daemon_info = daemon_servers[name]
 
-            local icon = status.running and "●" or "○"
-            local state = status.running and "running" or "stopped"
-            local pid_str = status.running and tostring(status.pid) or "-"
-            local refs_str = status.running and tostring(status.refcount) or "-"
+            -- For registered servers, use M.status(); for external ones use daemon info directly
+            local running, pid, refcount, started_at, is_lazy, is_attached
+            if is_registered then
+                local status = M.status(name)
+                running = status.running
+                pid = status.pid
+                refcount = status.refcount
+                started_at = status.started_at
+                is_lazy = status.lazy
+                is_attached = status.attached
+            else
+                -- External server: derive from daemon info
+                running = daemon_info and daemon_info.state == "active"
+                pid = daemon_info and daemon_info.pid
+                refcount = daemon_info and daemon_info.refcount or 0
+                started_at = daemon_info and daemon_info.started_at
+                is_lazy = false
+                is_attached = false
+            end
+
+            local icon = running and "●" or "○"
+            local state = running and "running" or "stopped"
+            local pid_str = (running and pid) and tostring(pid) or "-"
+            local refs_str = running and tostring(refcount) or "-"
             local uptime_str = "-"
 
-            if status.running and status.started_at then
-                local uptime = os.time() - status.started_at
+            if running and started_at then
+                local uptime = os.time() - started_at
                 uptime_str = M._format_uptime(uptime)
             end
 
-            local lazy_indicator = status.lazy and " [lazy]" or ""
-            local attached_indicator = (status.running and status.attached) and "" or " [detached]"
+            -- Annotation flags
+            local annotations = {}
+            if not is_registered then
+                table.insert(annotations, "[external]")
+            elseif is_lazy then
+                table.insert(annotations, "[lazy]")
+            end
+            if is_registered and running and not is_attached then
+                table.insert(annotations, "[detached]")
+            end
+            local annotation_str = #annotations > 0 and (" " .. table.concat(annotations, " ")) or ""
 
             table.insert(lines, string.format(
-                "%s %-18s %-12s %-8s %-8s %s%s%s",
+                "%s %-18s %-12s %-8s %-8s %s%s",
                 icon,
                 name,
                 state,
                 pid_str,
                 refs_str,
                 uptime_str,
-                lazy_indicator,
-                attached_indicator
+                annotation_str
             ))
         end
 

@@ -67,7 +67,11 @@ enum Commands {
         pid: Option<i32>,
     },
     /// List all servers
-    List,
+    List {
+        /// Output as JSON (for programmatic use)
+        #[arg(long)]
+        json: bool,
+    },
     /// Get detailed server information
     Info {
         /// Server name
@@ -168,7 +172,7 @@ fn main() -> Result<()> {
             command,
         } => commands::r#use::execute(&name, &grace_period, metadata, pid, &command),
         Commands::Unuse { name, pid } => commands::unuse::execute(&name, pid),
-        Commands::List => commands::list::execute(),
+        Commands::List { json } => commands::list::execute(json),
         Commands::Info { name, json } => commands::info::execute(&name, json),
         Commands::Check { name } => commands::check::execute(&name),
         Commands::Completion { shell } => {

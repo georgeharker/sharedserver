@@ -107,7 +107,7 @@ fn execute_internal(
         Ok(ForkResult::Child) => {
             // First child: become the watcher process
             setsid().context("Failed to create new session for watcher")?;
-            
+
             // CRITICAL: Redirect watcher's stdout/stderr immediately to prevent blocking
             // on inherited pipes from parent process when writing errors/logs
             use std::fs::OpenOptions;
@@ -120,7 +120,7 @@ fn execute_internal(
                     libc::close(fd);
                 }
             }
-            
+
             let watcher_pid = std::process::id() as i32;
 
             // Fork again to create the actual server process

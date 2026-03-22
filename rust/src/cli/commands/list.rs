@@ -1,5 +1,6 @@
 use anyhow::Result;
 use colored::*;
+use serde_json::json;
 use sharedserver::core::{get_server_state, read_clients_lock, read_server_lock};
 use std::fs;
 
@@ -7,11 +8,15 @@ use crate::output::{
     format_clients, format_pid, format_refcount, format_server_name, format_server_state,
 };
 
-pub fn execute() -> Result<()> {
+pub fn execute(json_output: bool) -> Result<()> {
     let lockdir = sharedserver::core::lockfile::lockfile_dir()?;
 
     if !lockdir.exists() {
-        println!("{}", "No servers found".dimmed());
+        if json_output {
+            println!("[]");
+        } else {
+            println!("{}", "No servers found".dimmed());
+        }
         return Ok(());
     }
 
@@ -46,12 +51,70 @@ pub fn execute() -> Result<()> {
     }
 
     if servers.is_empty() {
-        println!("{}", "No servers found".dimmed());
+        if json_output {
+            println!("[]");
+        } else {
+            println!("{}", "No servers found".dimmed());
+        }
         return Ok(());
     }
 
     // Sort by name
     servers.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if json_output {
+        let items: Vec<_> = servers
+            .iter()
+            .map(|(name, state, server_info)| {
+                let (refcount, clients_info) = if state == &sharedserver::core::ServerState::Active
+                {
+                    if let Ok(clients_lock) = read_clients_lock(name) {
+                        let clients_info: Vec<_> = clients_lock
+                            .clients
+                            .iter()
+                            .map(|(pid, info)| {
+                                json!({
+                                    "pid": pid,
+                                    "attached_at": info.attached_at,
+                                    "metadata": info.metadata,
+                                })
+                            })
+                            .collect();
+                        (clients_lock.refcount, Some(clients_info))
+                    } else {
+                        (0, None)
+                    }
+                } else {
+                    (0, None)
+                };
+
+                if let Some(srv) = server_info {
+                    json!({
+                        "name": name,
+                        "state": state.as_str(),
+                        "pid": srv.pid,
+                        "command": srv.command,
+                        "grace_period": srv.grace_period,
+                        "watcher_pid": srv.watcher_pid,
+                        "started_at": srv.started_at.timestamp(),
+                        "refcount": refcount,
+                        "clients": clients_info,
+                    })
+                } else {
+                    json!({
+                        "name": name,
+                        "state": state.as_str(),
+                        "pid": null,
+                        "refcount": 0,
+                        "clients": null,
+                    })
+                }
+            })
+            .collect();
+
+        println!("{}", serde_json::to_string_pretty(&items)?);
+        return Ok(());
+    }
 
     // Print header
     println!(
