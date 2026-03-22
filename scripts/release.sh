@@ -133,21 +133,23 @@ if [[ "$DRY_RUN" == true ]]; then
 	echo
 	echo "Would perform the following actions:"
 	echo "  1. Update version in $CARGO_TOML: $CURRENT_VERSION -> $VERSION_NUMBER"
-	echo "  2. Git add: $CARGO_TOML"
-	echo "  3. Git commit: 'chore: bump version to $VERSION_NUMBER'"
-	echo "  4. Git tag: $GIT_TAG"
-	echo "  5. Git push: origin HEAD"
-	echo "  6. Git push: origin $GIT_TAG"
+	echo "  2. Regenerate rust/Cargo.lock"
+	echo "  3. Git add: $CARGO_TOML rust/Cargo.lock"
+	echo "  4. Git commit: 'chore: bump version to $VERSION_NUMBER'"
+	echo "  5. Git tag: $GIT_TAG"
+	echo "  6. Git push: origin HEAD"
+	echo "  7. Git push: origin $GIT_TAG"
 	exit 0
 fi
 
 # Confirmation prompt
 echo
 print_warn "This will:"
-echo "  1. Update version in $CARGO_TOML"
-echo "  2. Commit the changes"
-echo "  3. Create tag $GIT_TAG"
-echo "  4. Push to remote (origin)"
+	echo "  1. Update version in $CARGO_TOML"
+	echo "  2. Regenerate rust/Cargo.lock"
+	echo "  3. Commit the changes"
+	echo "  4. Create tag $GIT_TAG"
+	echo "  5. Push to remote (origin)"
 echo
 read -p "Proceed? (y/N) " -n 1 -r
 echo
@@ -175,9 +177,19 @@ fi
 
 print_info "Version updated successfully"
 
+# Regenerate Cargo.lock with the new version
+CARGO_LOCK="rust/Cargo.lock"
+print_info "Regenerating $CARGO_LOCK..."
+(cd rust && cargo generate-lockfile)
+
+if [[ ! -f "$CARGO_LOCK" ]]; then
+	print_error "Could not find $CARGO_LOCK after regeneration"
+	exit 1
+fi
+
 # Git operations
 print_info "Staging changes..."
-git add "$CARGO_TOML"
+git add "$CARGO_TOML" "$CARGO_LOCK"
 
 print_info "Creating commit..."
 git commit -m "chore: bump version to $VERSION_NUMBER"

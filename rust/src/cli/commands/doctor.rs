@@ -33,7 +33,6 @@ fn check_server(name: &str) -> Result<()> {
                 match delete_server_lock(name) {
                     Ok(_) => {
                         print_success("    Removed stale server lockfile");
-                        issues_fixed += 1;
                     }
                     Err(e) => print_error(&format!("    Failed to remove server lockfile: {}", e)),
                 }
@@ -43,7 +42,6 @@ fn check_server(name: &str) -> Result<()> {
                 match delete_clients_lock(name) {
                     Ok(_) => {
                         print_success("    Removed stale clients lockfile");
-                        issues_fixed += 1;
                     }
                     Err(e) => print_error(&format!("    Failed to remove clients lockfile: {}", e)),
                 }
