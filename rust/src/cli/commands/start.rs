@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use nix::unistd::{fork, setsid, ForkResult};
+use nix::unistd::{fork, setpgid, setsid, ForkResult, Pid};
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, parse_duration,
     read_server_lock, server_lock_exists, write_clients_lock, write_server_lock, ClientInfo,
@@ -158,6 +158,12 @@ fn execute_internal(
                 }
                 Ok(ForkResult::Child) => {
                     // Grandchild: become the actual server process
+
+                    // Put the server in its own process group so we can kill the
+                    // entire tree (including children like uv→python) with killpg().
+                    // The watcher is in a separate session (setsid above) so it
+                    // won't be affected.
+                    let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
 
                     // Redirect stdin to /dev/null (required for servers like workspace-mcp)
                     // stdout/stderr go to log_file if provided, otherwise /dev/null

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, read_server_lock,
@@ -27,18 +27,26 @@ pub fn execute(name: &str) -> Result<()> {
         format_pid(server.pid)
     ));
 
-    // Send SIGKILL immediately (no grace period)
-    match kill(pid, Signal::SIGKILL) {
+    // Send SIGKILL to the entire process group (server + children like uv→python).
+    // Fall back to single-PID kill if the process isn't a group leader.
+    match killpg(pid, Signal::SIGKILL) {
         Ok(_) => {
-            print_success("SIGKILL sent");
+            print_success("SIGKILL sent to process group");
         }
-        Err(e) => {
-            // Check if process already dead
-            if !is_process_alive(server.pid) {
-                print_warning("Process already dead");
-            } else {
-                print_error(&format!("Failed to send SIGKILL: {}", e));
-                bail!("Failed to send SIGKILL: {}", e);
+        Err(_) => {
+            // Fallback: kill just the server PID
+            match kill(pid, Signal::SIGKILL) {
+                Ok(_) => {
+                    print_success("SIGKILL sent");
+                }
+                Err(e) => {
+                    if !is_process_alive(server.pid) {
+                        print_warning("Process already dead");
+                    } else {
+                        print_error(&format!("Failed to send SIGKILL: {}", e));
+                        bail!("Failed to send SIGKILL: {}", e);
+                    }
+                }
             }
         }
     }

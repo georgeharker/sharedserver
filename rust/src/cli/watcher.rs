@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use sharedserver::core::{
     clients_lock_exists, delete_clients_lock, delete_server_lock, is_process_alive, parse_duration,
@@ -53,19 +53,27 @@ pub fn run_watcher(name: &str, grace_period: &str) -> Result<()> {
         } else if let Some(start_time) = grace_timer {
             // Check if grace period expired
             if start_time.elapsed() >= grace_duration {
-                // Grace period expired, kill server
+                // Grace period expired, kill server process group.
+                // The server runs in its own process group (setpgid) so
+                // killpg takes down the entire tree (e.g. uv + python child).
                 let pid = Pid::from_raw(server_pid);
 
-                // Try SIGTERM first
-                let _ = kill(pid, Signal::SIGTERM);
+                // Try SIGTERM on the whole process group first.
+                // Fall back to single-PID kill for servers started before
+                // the setpgid change.
+                if killpg(pid, Signal::SIGTERM).is_err() {
+                    let _ = kill(pid, Signal::SIGTERM);
+                }
 
                 // Wait 5 seconds
                 thread::sleep(Duration::from_secs(5));
 
                 // Check if still alive
                 if is_process_alive(server_pid) {
-                    // Force kill with SIGKILL
-                    let _ = kill(pid, Signal::SIGKILL);
+                    // Force kill the whole process group with SIGKILL
+                    if killpg(pid, Signal::SIGKILL).is_err() {
+                        let _ = kill(pid, Signal::SIGKILL);
+                    }
                 }
 
                 // Clean up and exit

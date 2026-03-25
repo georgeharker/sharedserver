@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, read_server_lock, ServerState,
@@ -27,8 +27,11 @@ pub fn execute(name: &str, force: bool) -> Result<()> {
         format_pid(server.pid)
     ));
 
-    // Try SIGTERM first
-    kill(pid, Signal::SIGTERM).context("Failed to send SIGTERM")?;
+    // Try SIGTERM on the whole process group first (server runs in its own pgid).
+    // Fall back to single-PID kill if the process isn't a group leader.
+    if killpg(pid, Signal::SIGTERM).is_err() {
+        kill(pid, Signal::SIGTERM).context("Failed to send SIGTERM")?;
+    }
 
     // Wait up to 5 seconds for graceful shutdown
     let mut attempts = 0;
@@ -48,7 +51,10 @@ pub fn execute(name: &str, force: bool) -> Result<()> {
 
     if force {
         print_warning("Server did not stop gracefully, sending SIGKILL...");
-        kill(pid, Signal::SIGKILL).context("Failed to send SIGKILL")?;
+        // Kill entire process group, fall back to single PID
+        if killpg(pid, Signal::SIGKILL).is_err() {
+            kill(pid, Signal::SIGKILL).context("Failed to send SIGKILL")?;
+        }
 
         thread::sleep(Duration::from_millis(500));
 
