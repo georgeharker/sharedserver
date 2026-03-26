@@ -219,7 +219,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
     "georgeharker/sharedserver",
     dependencies = { "nvim-lua/plenary.nvim" },
-    build = "cargo install sharedserver --force",
+    build = "cargo install --path rust",
     config = function()
         require("sharedserver").setup({
             servers = {
