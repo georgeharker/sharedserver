@@ -563,6 +563,11 @@ M.list = function()
     return names
 end
 
+-- Check whether a server name has been registered (M._servers entry exists)
+M.is_registered = function(name)
+    return M._servers[name] ~= nil
+end
+
 -- Format uptime from seconds
 M._format_uptime = function(seconds)
     if seconds < 60 then
