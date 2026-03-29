@@ -303,7 +303,11 @@ M.register = function(name, opts)
             M.start(name)
         end
     else
-        -- Lazy mode: only attach if already running
+        -- Lazy mode: the caller is responsible for calling start() or
+        -- attach_if_running() explicitly.  We only set up a VimEnter hook
+        -- when vim hasn't entered yet so that a pre-VimEnter registration
+        -- still gets a chance to attach on startup.  A late registration
+        -- (vim already entered) gets no automatic action — the caller decides.
         if vim.v.vim_did_enter == 0 then
             vim.api.nvim_create_autocmd("VimEnter", {
                 once = true,
@@ -311,8 +315,6 @@ M.register = function(name, opts)
                     M.attach_if_running(name)
                 end
             })
-        else
-            M.attach_if_running(name)
         end
     end
 end
