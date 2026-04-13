@@ -1,40 +1,42 @@
 name: Lua Tests
 
 on:
-  workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "lua/**"
-      - "tests/spec/**"
-      - ".busted"
-      - "Makefile"
-  pull_request:
-    paths:
-      - "lua/**"
-      - "tests/spec/**"
-      - ".busted"
-      - "Makefile"
+    workflow_dispatch:
+    push:
+        branches: ["main"]
+        paths:
+            - "lua/**"
+            - "tests/spec/**"
+            - ".busted"
+            - "Makefile"
+    pull_request:
+        paths:
+            - "lua/**"
+            - "tests/spec/**"
+            - ".busted"
+            - "Makefile"
 
 jobs:
-  test:
-    name: Run Lua unit tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    test:
+        name: Run Lua unit tests
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Install Neovim
-        uses: rhysd/action-setup-vim@v1
-        with:
-          neovim: true
-          version: stable
+            - name: Setup Lua environment for Neovim
+              uses: notomo/action-setup-nvim-lua@v2
 
-      - name: Install LuaRocks and vusted
-        run: |
-          sudo apt-get install -y luarocks lua5.1 liblua5.1-dev
-          luarocks --lua-version=5.1 --local install vusted
+            - name: Install vusted
+              run: luarocks install vusted
 
-      - name: Run tests
-        run: |
-          export PATH="$HOME/.luarocks/bin:$PATH"
-          make test
+            - name: Install Neovim
+              uses: rhysd/action-setup-vim@v1
+              id: nvim
+              with:
+                  neovim: true
+                  version: stable
+
+            - name: Run tests
+              env:
+                  VUSTED_NVIM: ${{ steps.nvim.outputs.executable }}
+              run: make test
