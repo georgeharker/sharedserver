@@ -1,6 +1,3 @@
-local Job = require("plenary.job")
-local Path = require("plenary.path")
-
 local M = {}
 
 -- Storage for multiple server configurations
@@ -107,26 +104,19 @@ M._call_sharedserver = function(args, opts)
         SHAREDSERVER_DEBUG = opts.debug and "1" or "0",
     })
 
-    local stdout_lines = {}
-    local stderr_lines = {}
+    local cmd = {sharedserver}
+    for _, arg in ipairs(args) do
+        table.insert(cmd, arg)
+    end
 
-    local job = Job:new({
-        command = sharedserver,
-        args = args,
+    local result = vim.system(cmd, {
         env = env,
-        on_stdout = function(_, line)
-            table.insert(stdout_lines, line)
-        end,
-        on_stderr = function(_, line)
-            table.insert(stderr_lines, line)
-        end,
-    })
+        text = true,
+    }):wait()
 
-    job:sync()
-
-    local stdout = table.concat(stdout_lines, "\n")
-    local stderr = table.concat(stderr_lines, "\n")
-    local exit_code = job.code
+    local stdout = result.stdout or ""
+    local stderr = result.stderr or ""
+    local exit_code = result.code
 
     return stdout, stderr, exit_code
 end
@@ -196,7 +186,7 @@ end
 M._get_all_daemon_servers = function()
     local stdout, stderr, exit_code = M._call_sharedserver({"list", "--json"})
 
-    if exit_code ~= 0 or not stdout or stdout == "" then
+    if exit_code ~= 0 or not stdout or vim.trim(stdout) == "" then
         return {}
     end
 
@@ -280,7 +270,7 @@ M.register = function(name, opts)
     opts = vim.tbl_extend("force", defaults, opts)
 
     if opts.working_dir then
-        opts.working_dir = vim.fs.normalize(Path:new(opts.working_dir):normalize())
+        opts.working_dir = vim.fs.normalize(opts.working_dir)
     end
 
     -- Initialize server state
@@ -393,9 +383,8 @@ M._start_with_sharedserver = function(name, server, config)
 
     -- Create working directory if specified and doesn't exist
     if config.working_dir then
-        local work_path = Path:new(config.working_dir)
-        if not work_path:exists() then
-            work_path:mkdir({parents = true})
+        if not vim.uv.fs_stat(config.working_dir) then
+            vim.fn.mkdir(config.working_dir, "p")
         end
     end
 
@@ -418,7 +407,7 @@ M._start_with_sharedserver = function(name, server, config)
     end
 
     -- IMPORTANT: Explicitly pass Neovim's PID as the client PID
-    -- Without this, getppid() would return the intermediate shell/process created by plenary.job,
+    -- Without this, getppid() would return the intermediate shell/process created by vim.system(),
     -- which exits immediately and causes the watcher to think the client died
     local pid = vim.fn.getpid()
     table.insert(sharedserver_args, "--pid")

@@ -5,9 +5,6 @@
 local plugin_dir = vim.fn.getcwd()
 vim.opt.runtimepath:prepend(plugin_dir)
 
--- Load plenary (required dependency)
-vim.opt.runtimepath:prepend(vim.fn.expand("~/.local/share/nvim/lazy/plenary.nvim"))
-
 -- Load the plugin
 local sharedserver = require("sharedserver")
 

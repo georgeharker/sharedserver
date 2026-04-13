@@ -43,7 +43,6 @@ cp rust/target/release/sharedserver ~/.local/bin/
 ```lua
 {
     "georgeharker/sharedserver",
-    dependencies = { "nvim-lua/plenary.nvim" },
     build = "cargo install sharedserver --force",
     config = function()
         require("sharedserver").setup({
@@ -64,7 +63,6 @@ cp rust/target/release/sharedserver ~/.local/bin/
 ```lua
 {
     dir = "~/Development/neovim-plugins/sharedserver",
-    dependencies = { "nvim-lua/plenary.nvim" },
     build = "cargo install --path rust --force",
     config = function()
         require("sharedserver").setup({

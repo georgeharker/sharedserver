@@ -208,8 +208,7 @@ manual Lua usage, lazy loading, notification config — see
 
 ### Requirements
 
-- Neovim 0.5+
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- Neovim 0.10+
 
 ### Installation
 
@@ -218,7 +217,6 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
     "georgeharker/sharedserver",
-    dependencies = { "nvim-lua/plenary.nvim" },
     build = "cargo install --path rust",
     config = function()
         require("sharedserver").setup({

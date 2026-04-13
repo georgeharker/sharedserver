@@ -9,7 +9,6 @@ This document contains various configuration examples for sharedserver.
 ```lua
 return {
     "sharedserver",
-    dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
         -- Setup multiple servers
         require("sharedserver").setup({

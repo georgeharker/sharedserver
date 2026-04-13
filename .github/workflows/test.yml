@@ -1,0 +1,39 @@
+name: Lua Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "lua/**"
+      - "tests/spec/**"
+      - ".busted"
+      - "Makefile"
+  pull_request:
+    paths:
+      - "lua/**"
+      - "tests/spec/**"
+      - ".busted"
+      - "Makefile"
+
+jobs:
+  test:
+    name: Run Lua unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Install LuaRocks and vusted
+        run: |
+          sudo apt-get install -y luarocks
+          luarocks --local install vusted
+
+      - name: Run tests
+        run: |
+          export PATH="$HOME/.luarocks/bin:$PATH"
+          make test
