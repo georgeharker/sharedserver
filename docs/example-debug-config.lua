@@ -1,5 +1,5 @@
 -- Example configuration for debugging the goog_ws server issue
--- Add this to your Neovim config to enable debug logging
+-- Add this to your Neovim config to capture server output
 
 require("sharedserver").setup({
     servers = {
@@ -12,8 +12,8 @@ require("sharedserver").setup({
             },
             lazy = true,
 
-            -- DEBUGGING: Enable this line to capture detailed startup logs
-            debug_log = "/tmp/sharedserver-debug.log",
+            -- DEBUGGING: Enable this line to capture the server's stdout/stderr
+            log_file = "/tmp/sharedserver-debug.log",
         },
     },
     commands = true,
@@ -26,11 +26,11 @@ require("sharedserver").setup({
 })
 
 -- Instructions:
--- 1. Reload your Neovim config with the debug_log line enabled
+-- 1. Reload your Neovim config with the log_file line enabled
 -- 2. Run: :ServerStart goog_ws
 -- 3. If the server dies immediately:
 --    a. You'll see an error notification after 3 seconds
---    b. Check the debug log: tail -f /tmp/sharedserver-debug.log
+--    b. Check the log: tail -f /tmp/sharedserver-debug.log
 -- 4. Compare the command in the log with running it manually in your shell
 
 -- For testing the health check notification:
@@ -41,7 +41,7 @@ require("sharedserver").setup({
 --         test_exit = {
 --             command = "bash",
 --             args = { "-c", "exit 1" },
---             debug_log = "/tmp/sharedserver-debug.log",
+--             log_file = "/tmp/sharedserver-debug.log",
 --         },
 --     },
 -- })
@@ -55,7 +55,7 @@ require("sharedserver").setup({
 --         test_delayed_exit = {
 --             command = "bash",
 --             args = { "-c", "sleep 2; exit 1" },
---             debug_log = "/tmp/sharedserver-debug.log",
+--             log_file = "/tmp/sharedserver-debug.log",
 --         },
 --     },
 -- })

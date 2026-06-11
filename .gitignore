@@ -12,3 +12,9 @@
 bin/sharedserver-watcher
 bin/*.o
 /.codecompanion
+
+# Quarto site build
+/_site/
+/.quarto/
+**/*.quarto_ipynb
+_quarto-deploy.yml

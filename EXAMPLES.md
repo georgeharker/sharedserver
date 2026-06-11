@@ -8,7 +8,7 @@ This document contains various configuration examples for sharedserver.
 
 ```lua
 return {
-    "sharedserver",
+    "georgeharker/sharedserver",
     config = function()
         -- Setup multiple servers
         require("sharedserver").setup({
@@ -376,7 +376,8 @@ require("sharedserver").setup({
 
 ### Default (Recommended)
 
-The default configuration is quiet during normal operations:
+The default configuration notifies on start and attach, and stays quiet on
+normal stops:
 
 ```lua
 require("sharedserver").setup({
@@ -390,8 +391,8 @@ require("sharedserver").setup({
 -- Equivalent to:
 -- {
 --     notify = {
---         on_start = true,   -- Only when starting NEW server
---         on_attach = false, -- Silent when attaching to existing
+--         on_start = true,   -- When starting a NEW server
+--         on_attach = true,  -- When attaching to an existing server
 --         on_stop = false,   -- Silent on normal stop
 --         on_error = true,   -- Always show errors
 --     }
@@ -400,7 +401,8 @@ require("sharedserver").setup({
 
 ### Per-Server Custom Notifications
 
-Use `on_start` and `on_exit` callbacks to override default notifications:
+Use the `on_start` callback to add per-server notifications (`on_exit` is
+reserved for future use and is not yet invoked by the plugin):
 
 ```lua
 require("sharedserver").setup({

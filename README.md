@@ -124,7 +124,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 
 | Command | Description |
 |---------|-------------|
-| `admin start <name> --pid <pid> -- <cmd>` | Manually register a server |
+| `admin start <name> -- <cmd>` | Manually start a server with no clients (refcount 0) |
 | `admin stop <name> [--force]` | Emergency stop (SIGTERM) |
 | `admin incref <name> --pid <pid>` | Manual refcount increment |
 | `admin decref <name> --pid <pid>` | Manual refcount decrement |
@@ -234,10 +234,13 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 The plugin searches for the `sharedserver` binary in order:
 1. `<plugin-dir>/rust/target/release/sharedserver`
-2. `~/.cargo/bin/sharedserver` (via PATH)
-3. `~/.local/bin/sharedserver`
-4. `/usr/local/bin/sharedserver`
-5. `/opt/homebrew/bin/sharedserver`
+2. `~/.local/bin/sharedserver`
+3. `/usr/local/bin/sharedserver`
+4. `/opt/homebrew/bin/sharedserver`
+
+It does not search `$PATH`, so a binary that only lives in `~/.cargo/bin`
+won't be found — build with the `build` command above, or copy it to one of
+the locations listed.
 
 ### What the Plugin Does
 
@@ -264,7 +267,7 @@ require("sharedserver").setup({
             lazy = false,                   -- optional: only attach if already running
             idle_timeout = "30m",           -- optional: grace period after last client
             on_start = function(pid) end,   -- optional: callback on start
-            on_exit = function(code) end,   -- optional: callback on exit
+            on_exit = function(code) end,   -- optional: callback on exit (reserved; not yet invoked)
         },
     },
     commands = true,  -- create user commands (default: true)
@@ -289,9 +292,11 @@ require("sharedserver").setup({
 | `:ServerStopAll` | Stop all servers |
 
 `:ServerStatus` shows a floating window with status indicators:
-- `●` Running with active clients (refcount > 0)
-- `⏳` Grace period (refcount = 0, waiting for timeout)
+- `●` Running (active or in grace period)
 - `○` Stopped
+
+The single-server view (`:ServerStatus <name>`) additionally flags servers in
+their grace period.
 
 ### Lua API
 

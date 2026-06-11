@@ -1,0 +1,51 @@
+project:
+  type: website
+  render:
+    - index.md
+    - README.md   # README files must be listed explicitly; globs skip them
+    - EXAMPLES.md
+    - CHANGELOG.md
+    - docs/*.md
+    # Repo-only documents, deliberately NOT rendered:
+    # PUBLISHING.md (root, never globbed) holds maintainer release
+    # instructions; SHELL_WRAPPER_DESIGN.md is a design record and
+    # docs/CHANGELOG.md a historical feature announcement — they stay
+    # repo-only until reviewed for user visibility.
+    - "!docs/SHELL_WRAPPER_DESIGN.md"
+    - "!docs/CHANGELOG.md"
+
+# gfm_auto_identifiers makes heading anchors match GitHub's slugs, which the
+# docs' cross-links use. Keep pandoc's full markdown reader otherwise —
+# `from: gfm` breaks Quarto's navigation divs.
+from: markdown+gfm_auto_identifiers
+
+website:
+  title: "sharedserver"
+  search: true
+  sidebar:
+    style: docked
+    tools:
+      - icon: github
+        href: https://github.com/georgeharker/sharedserver
+        text: GitHub repository
+    contents:
+      - text: "Home"
+        href: index.md
+      - text: "Overview (README)"
+        href: README.md
+      - section: "Guides"
+        contents:
+          - text: "Configuration Examples"
+            href: EXAMPLES.md
+          - docs/NEOVIM.md
+          - docs/DEBUGGING.md
+      - section: "Reference"
+        contents:
+          - text: "Changelog"
+            href: CHANGELOG.md
+
+format:
+  html:
+    theme: pulse
+    toc: true
+    embed-resources: true

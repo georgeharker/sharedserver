@@ -16,10 +16,14 @@ cargo build --release
 The plugin searches for the binary in this order:
 
 1. `<plugin-dir>/rust/target/release/sharedserver`
-2. `~/.cargo/bin/sharedserver` (via PATH after `cargo install`)
-3. `~/.local/bin/sharedserver`
-4. `/usr/local/bin/sharedserver`
-5. `/opt/homebrew/bin/sharedserver`
+2. `~/.local/bin/sharedserver`
+3. `/usr/local/bin/sharedserver`
+4. `/opt/homebrew/bin/sharedserver`
+
+It does not search `$PATH`: a plain `cargo install sharedserver` puts the
+binary in `~/.cargo/bin`, which the plugin won't find. Either build in place
+(`cargo install --path rust`, which leaves the binary under
+`rust/target/release/`) or copy it to one of the locations above.
 
 ### System-wide Installation
 
@@ -43,7 +47,7 @@ cp rust/target/release/sharedserver ~/.local/bin/
 ```lua
 {
     "georgeharker/sharedserver",
-    build = "cargo install sharedserver --force",
+    build = "cargo install --path rust --force",
     config = function()
         require("sharedserver").setup({
             servers = {
@@ -113,7 +117,7 @@ The `:ServerStatus` command opens a floating window showing all registered serve
 │ ────────────────────────────────────────────────────────────────────────│
 │ ● chroma             running      1234     2        2h 15m               │
 │ ● redis              running      5678     1        45m 32s              │
-│ ⏳ postgres           GRACE        9012     0        3h 22m               │
+│ ● postgres           running      9012     0        3h 22m               │
 │ ○ myserver           stopped      -        -        - [lazy]             │
 │                                                                           │
 │ Press q or <Esc> to close                                                │
@@ -121,12 +125,14 @@ The `:ServerStatus` command opens a floating window showing all registered serve
 ```
 
 Status indicators:
-- `●` Running with active clients (refcount > 0)
-- `⏳` Grace period (refcount = 0, waiting for timeout)
+- `●` Running (active, or in grace period with refcount 0)
 - `○` Stopped
 
+Rows may also be annotated with `[lazy]`, `[detached]`, or `[external]` (a
+server known to sharedserver but not registered with the plugin).
+
 Use `:ServerStatus <name>` for a single server's detail view (includes full
-command, arguments, and connection info).
+command, arguments, attachment state, and a grace-period flag).
 
 ## Detailed API Reference
 
@@ -209,7 +215,7 @@ end
 -- Get server info as JSON
 local json = vim.fn.system({ sharedserver, "info", "myserver", "--json" })
 local info = vim.fn.json_decode(json)
-print("PID:", info.pid, "Status:", info.status, "Refcount:", info.refcount)
+print("PID:", info.pid, "State:", info.state, "Refcount:", info.refcount)
 
 -- Manual attach/detach
 vim.fn.system({
@@ -279,7 +285,8 @@ notify = {
 
 ### Per-server callbacks
 
-Override default notifications with `on_start` / `on_exit`:
+Add per-server behaviour with `on_start` (`on_exit` is reserved for future
+use and is not yet invoked by the plugin):
 
 ```lua
 servers = {
