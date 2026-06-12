@@ -1,44 +1,35 @@
 -- Health check module for :checkhealth sharedserver
 local M = {}
 
--- Get the path to the sharedserver binary
+-- Resolve the binary exactly the way the plugin does (plugin rust/target,
+-- then the fixed install locations) — health must never report a binary the
+-- plugin won't actually use.
 local function get_sharedserver_path()
-    -- Try to get from plugin configuration first
     local ok, sharedserver = pcall(require, "sharedserver")
-    if ok and sharedserver._config and sharedserver._config.sharedserver_path then
-        return sharedserver._config.sharedserver_path
+    if not ok then
+        return nil, "Plugin not loaded"
     end
-    
-    -- Fall back to 'sharedserver' in PATH
-    return "sharedserver"
+    return sharedserver._find_sharedserver()
 end
 
 -- Check if sharedserver binary exists and is executable
 local function check_binary()
-    local path = get_sharedserver_path()
-    local handle = io.popen("command -v " .. path .. " 2>/dev/null")
-    if not handle then
-        return false, "Could not execute command"
+    local path, err = get_sharedserver_path()
+    if not path then
+        return false, err or "Binary not found in any plugin search path"
     end
-    
-    local result = handle:read("*a")
-    handle:close()
-    
-    if result and result ~= "" then
-        return true, vim.trim(result)
-    end
-    
-    return false, "Binary not found in PATH"
+    return true, path
 end
 
--- Check if lockdir is accessible
+-- Check if lockdir is accessible — same resolution as the plugin/binary
+-- (SHAREDSERVER_LOCKDIR, then XDG_RUNTIME_DIR, then /tmp).
 local function check_lockdir()
     local ok, sharedserver = pcall(require, "sharedserver")
     if not ok then
         return false, "Plugin not loaded"
     end
-    
-    local lockdir = sharedserver._config and sharedserver._config.lockdir or (vim.fn.stdpath("data") .. "/sharedserver")
+
+    local lockdir = sharedserver._get_lockdir()
     
     -- Check if directory exists or can be created
     local stat = vim.loop.fs_stat(lockdir)
@@ -93,18 +84,14 @@ end
 -- Check version
 local function check_version()
     local path = get_sharedserver_path()
-    local handle = io.popen(path .. " --version 2>&1")
-    if not handle then
+    if not path then
         return false, "Could not execute binary"
     end
-    
-    local result = handle:read("*a")
-    handle:close()
-    
-    if result and result:match("sharedserver") then
+    local result = vim.fn.system({ path, "--version" })
+    if vim.v.shell_error == 0 and result and result:match("sharedserver") then
         return true, vim.trim(result)
     end
-    
+
     return false, "Could not get version"
 end
 
@@ -128,8 +115,9 @@ M.check = function()
         end
     else
         health.error("sharedserver binary not found: " .. binary_info)
-        health.info("Install from: https://crates.io/crates/sharedserver")
-        health.info("Or build from source: cargo install sharedserver")
+        health.info("Searched: <plugin>/rust/target/release, ~/.local/bin, /usr/local/bin, /opt/homebrew/bin")
+        health.info("Build in the plugin dir: cargo install --path rust --force")
+        health.info("(plain `cargo install sharedserver` lands in ~/.cargo/bin, which the plugin does not search)")
     end
     
     -- Check lockdir
