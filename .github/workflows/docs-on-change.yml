@@ -5,15 +5,13 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
       - "README.md"
-      - "EXAMPLES.md"
-      - "CHANGELOG.md"
       - "index.md"
       - "_quarto.yml"
-      - "scripts/check-docs.zsh"
       - ".github/workflows/docs-on-change.yml"
-      - ".github/actions/deploy-docs/**"
+      - "docs/**"
+      - "EXAMPLES.md"
+      - "CHANGELOG.md"
 
 concurrency:
   group: docs-${{ github.ref }}
@@ -21,15 +19,13 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
     # Inert until the deploy vars/secrets are configured on the repo.
     if: ${{ vars.DOCS_SSH_DEST != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/deploy-docs
-        with:
-          target-prefix: ${{ github.ref_name }}
-          ssh-dest: ${{ vars.DOCS_SSH_DEST }}
-          site-url: ${{ vars.DOCS_SITE_URL }}
-          deploy-key: ${{ secrets.DOCS_DEPLOY_KEY }}
-          host-key: ${{ secrets.DOCS_HOST_KEY }}
+    uses: georgeharker/gh-quarto-publish/.github/workflows/publish.yml@main
+    with:
+      target-prefix: ${{ github.ref_name }}
+      ssh-dest: ${{ vars.DOCS_SSH_DEST }}
+      site-url: ${{ vars.DOCS_SITE_URL }}
+    secrets:
+      deploy-key: ${{ secrets.DOCS_DEPLOY_KEY }}
+      host-key: ${{ secrets.DOCS_HOST_KEY }}

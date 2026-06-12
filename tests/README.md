@@ -214,5 +214,4 @@ When adding new tests:
 ## Related Documentation
 
 - [MONITORING_TESTS.md](MONITORING_TESTS.md) - Detailed test documentation
-- [../rust/sharedserver-core/README.md](../rust/sharedserver-core/README.md) - Core library docs
-- [../rust/sharedserver-cli/README.md](../rust/sharedserver-cli/README.md) - CLI documentation
+- [../README.md](../README.md) - Main documentation (CLI and Lua API)

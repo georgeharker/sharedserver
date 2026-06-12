@@ -4,6 +4,9 @@
 
 A shared process manager with reference counting, grace periods, and dead-client detection. Use it standalone from the command line or integrate it with Neovim for automatic server lifecycle management.
 
+> 📖 Rendered documentation:
+> [docs.georgeharker.com/sharedserver](https://docs.georgeharker.com/sharedserver/)
+
 ## Overview
 
 ```
