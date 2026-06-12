@@ -182,9 +182,6 @@ require("sharedserver").setup({
             on_start = function(pid)
                 vim.notify("API server running on http://localhost:3000")
             end,
-            on_exit = function(exit_code)
-                vim.notify("API server exited with code " .. exit_code)
-            end,
         },
     },
 })
@@ -401,8 +398,7 @@ require("sharedserver").setup({
 
 ### Per-Server Custom Notifications
 
-Use the `on_start` callback to add per-server notifications (`on_exit` is
-reserved for future use and is not yet invoked by the plugin):
+Use the `on_start` callback to add per-server notifications:
 
 ```lua
 require("sharedserver").setup({
@@ -413,11 +409,6 @@ require("sharedserver").setup({
             on_start = function(pid)
                 -- Custom notification (overrides default)
                 vim.notify("🔥 ChromaDB ready at http://localhost:8000", vim.log.levels.INFO)
-            end,
-            on_exit = function(exit_code)
-                if exit_code ~= 0 then
-                    vim.notify("⚠️  ChromaDB crashed!", vim.log.levels.WARN)
-                end
             end,
         },
     },

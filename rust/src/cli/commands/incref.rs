@@ -11,7 +11,7 @@ pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result
     match state {
         ServerState::Stopped => {
             bail!(
-                "Server '{}' is not running. Start it first with 'serverctl start'",
+                "Server '{}' is not running. Start it first with 'sharedserver use' or 'sharedserver admin start'",
                 name
             );
         }

@@ -105,11 +105,11 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum AdminCommands {
-    /// Start a new server with NO clients (low-level - use 'serverctl use' instead)
+    /// Start a new server with NO clients (low-level - use 'sharedserver use' instead)
     ///
     /// This creates a server in a "waiting for clients" state (refcount=0).
     /// The server will immediately enter its grace period unless a client
-    /// calls 'incref' to attach. Normal users should use 'serverctl use' instead,
+    /// calls 'incref' to attach. Normal users should use 'sharedserver use' instead,
     /// which combines start+incref atomically.
     Start {
         /// Server name
@@ -135,7 +135,7 @@ enum AdminCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Increment reference count (low-level - use 'serverctl use' instead)
+    /// Increment reference count (low-level - use 'sharedserver use' instead)
     Incref {
         /// Server name
         name: String,
@@ -146,7 +146,7 @@ enum AdminCommands {
         #[arg(long)]
         pid: Option<i32>,
     },
-    /// Decrement reference count (low-level - use 'serverctl unuse' instead)
+    /// Decrement reference count (low-level - use 'sharedserver unuse' instead)
     Decref {
         /// Server name
         name: String,

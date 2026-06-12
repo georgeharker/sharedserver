@@ -100,7 +100,7 @@ fn execute_internal(
     }
 
     // Double fork strategy:
-    // 1. First fork: Parent = serverctl (returns), Child = watcher
+    // 1. First fork: Parent = sharedserver (returns), Child = watcher
     // 2. Second fork (in watcher): Parent = watcher (monitors), Child = server (execs)
 
     match unsafe { fork() } {
@@ -242,7 +242,7 @@ fn execute_internal(
         Ok(ForkResult::Parent {
             child: watcher_child,
         }) => {
-            // Original serverctl process: wait briefly for watcher to set up,
+            // Original sharedserver process: wait briefly for watcher to set up,
             // then return to caller
 
             // Give watcher time to fork server and update locks

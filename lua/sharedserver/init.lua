@@ -261,7 +261,6 @@ M.register = function(name, opts)
         working_dir = nil,  -- optional, defaults to cwd
         lazy = false,  -- if true, only attach if already running, don't start
         on_start = nil,  -- optional callback(pid)
-        on_exit = nil,   -- optional callback(exit_code)
         idle_timeout = nil,  -- grace period duration (e.g., "30m", "1h", "2h30m")
         env = {},  -- optional environment variables (e.g., {PATH="/usr/bin", DEBUG="1"})
         log_file = nil,  -- optional log file path for server stdout/stderr

@@ -36,7 +36,7 @@ pub fn execute(
             if command.is_empty() {
                 bail!(
                     "Server '{}' is not running and no command provided. \
-                     Usage: serverctl use [--grace-period DURATION] [--pid PID] <name> -- <command> [args...]",
+                     Usage: sharedserver use [--grace-period DURATION] [--pid PID] <name> -- <command> [args...]",
                     name
                 );
             }

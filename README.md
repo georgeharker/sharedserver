@@ -270,7 +270,6 @@ require("sharedserver").setup({
             lazy = false,                   -- optional: only attach if already running
             idle_timeout = "30m",           -- optional: grace period after last client
             on_start = function(pid) end,   -- optional: callback on start
-            on_exit = function(code) end,   -- optional: callback on exit (reserved; not yet invoked)
         },
     },
     commands = true,  -- create user commands (default: true)

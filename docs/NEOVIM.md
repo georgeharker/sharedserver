@@ -285,8 +285,7 @@ notify = {
 
 ### Per-server callbacks
 
-Add per-server behaviour with `on_start` (`on_exit` is reserved for future
-use and is not yet invoked by the plugin):
+Add per-server behaviour with `on_start`:
 
 ```lua
 servers = {
@@ -295,11 +294,6 @@ servers = {
         args = { "run" },
         on_start = function(pid)
             vim.notify("ChromaDB ready at http://localhost:8000")
-        end,
-        on_exit = function(exit_code)
-            if exit_code ~= 0 then
-                vim.notify("ChromaDB crashed!", vim.log.levels.WARN)
-            end
         end,
     },
 }
