@@ -29,7 +29,7 @@
           license = lib.licenses.mit;
         };
         craneLib = inputs.crane.mkLib pkgs;
-        sourceFilter = path: type: (builtins.match ".*sh$" path != null) || (craneLib.filterCargoSources path type);
+        sourceFilter = path: type: (builtins.match ".*/test_helpers/.*\\.sh$" path != null) || (craneLib.filterCargoSources path type);
         cargoArtifacts = craneLib.buildDepsOnly {
           src = ./rust;
           strictDeps = true;
@@ -46,8 +46,10 @@
             cd $sourceRoot/rust
             sourceRoot="."
           '';
-          postInstall = ''
-            rm -rf /tmp/sharedserver
+          # Isolate tests from the host's live lockdir (the Nix sandbox is off
+          # by default on Darwin, so tests would otherwise hit /tmp/sharedserver)
+          preCheck = ''
+            export SHAREDSERVER_LOCKDIR="$TMPDIR/sharedserver-tests"
           '';
         };
         sharedserver-nvim = pkgs.vimUtils.buildVimPlugin {

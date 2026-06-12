@@ -62,8 +62,13 @@ end
 
 -- Find sharedserver binary
 M._find_sharedserver = function()
-    if vim.fn.executable(M._config.sharedserver_cmd) == 1 then
-        return M._config.sharedserver_cmd
+    if M._config.sharedserver_cmd ~= "" then
+        if vim.fn.executable(M._config.sharedserver_cmd) == 1 then
+            return M._config.sharedserver_cmd
+        end
+        vim.notify_once("sharedserver: configured sharedserver_cmd '"
+            .. M._config.sharedserver_cmd .. "' is not executable; falling back to auto-discovery",
+            vim.log.levels.WARN)
     end
 
     -- Try relative to plugin directory first (Rust version)
