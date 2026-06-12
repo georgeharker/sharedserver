@@ -365,7 +365,8 @@ M.start = function(name)
 
     local config = server.config
 
-    if not vim.fn.executable(config.command) then
+    -- executable() returns 0/1, both truthy in Lua — compare explicitly
+    if vim.fn.executable(config.command) ~= 1 then
         M._notify("sharedserver: command '" .. config.command .. "' is not executable", vim.log.levels.WARN, "error")
         return false
     end
