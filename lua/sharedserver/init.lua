@@ -24,6 +24,7 @@ end
 
 -- Default configuration
 M._config = {
+    sharedserver_cmd = "",
     commands = true,
     notify = {
         on_start = true,     -- Notify when starting a new server
@@ -61,6 +62,15 @@ end
 
 -- Find sharedserver binary
 M._find_sharedserver = function()
+    if M._config.sharedserver_cmd ~= "" then
+        if vim.fn.executable(M._config.sharedserver_cmd) == 1 then
+            return M._config.sharedserver_cmd
+        end
+        vim.notify_once("sharedserver: configured sharedserver_cmd '"
+            .. M._config.sharedserver_cmd .. "' is not executable; falling back to auto-discovery",
+            vim.log.levels.WARN)
+    end
+
     -- Try relative to plugin directory first (Rust version)
     local script_path = debug.getinfo(1).source:sub(2)  -- Remove @ prefix
     local plugin_dir = vim.fn.fnamemodify(script_path, ':h:h:h')
@@ -311,13 +321,13 @@ end
 -- Schedule a health check to verify server is still running after start
 M._schedule_health_check = function(name, delay_ms)
     delay_ms = delay_ms or 3000  -- Default to 3 seconds
-    
+
     vim.defer_fn(function()
         local server = M._servers[name]
         if not server or not server.attached then
             return  -- Server was stopped manually, nothing to check
         end
-        
+
         local info = M._sharedserver_info(name)
         if not info or info.state == "stopped" then
             -- Server died after starting
