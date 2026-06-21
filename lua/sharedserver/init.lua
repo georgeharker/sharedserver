@@ -71,6 +71,12 @@ M._find_sharedserver = function()
             vim.log.levels.WARN)
     end
 
+    -- Honour an explicit env override (parity with the bin/sharedserver wrapper).
+    local env_bin = vim.env.SHAREDSERVER_BIN
+    if env_bin and env_bin ~= "" and vim.fn.executable(env_bin) == 1 then
+        return env_bin
+    end
+
     -- Try relative to plugin directory first (Rust version)
     local script_path = debug.getinfo(1).source:sub(2)  -- Remove @ prefix
     local plugin_dir = vim.fn.fnamemodify(script_path, ':h:h:h')
@@ -80,8 +86,21 @@ M._find_sharedserver = function()
         return sharedserver
     end
 
-    -- Try common installation locations
+    -- On PATH? A bare-name lookup respects the user's PATH (incl. ~/.cargo/bin
+    -- when Neovim inherits a login shell). This was previously skipped entirely,
+    -- so a sharedserver that *is* on PATH but not in the hard-coded list below
+    -- read as "not found".
+    if vim.fn.executable("sharedserver") == 1 then
+        return vim.fn.exepath("sharedserver")
+    end
+
+    -- Try common installation locations. Includes ~/.cargo/bin because
+    -- `cargo install sharedserver` drops the binary there — and ~/.cargo/bin is
+    -- frequently absent from a GUI/non-login-shell PATH (so the bare-name lookup
+    -- above misses it), which is the classic "on PATH in my terminal but the
+    -- editor can't find it" case.
     local common_paths = {
+        vim.fn.expand("~/.cargo/bin/sharedserver"),
         vim.fn.expand("~/.local/bin/sharedserver"),
         "/usr/local/bin/sharedserver",
         "/opt/homebrew/bin/sharedserver",
