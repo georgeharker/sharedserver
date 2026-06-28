@@ -2,7 +2,8 @@ use anyhow::Result;
 use colored::*;
 use sharedserver::core::{
     clients_lock_exists, delete_clients_lock, delete_server_lock, get_server_state,
-    is_process_alive, read_clients_lock, read_server_lock, server_lock_exists, ServerState,
+    is_process_alive, process_liveness_checked, read_clients_lock, read_server_lock,
+    server_lock_exists, Liveness, ServerState,
 };
 use std::fs;
 
@@ -77,29 +78,56 @@ fn check_server(name: &str) -> Result<()> {
         None
     };
 
-    // Check 2: Validate server process is actually alive
-    if !is_process_alive(server_lock.pid) {
+    // Check 2: Validate server process is actually alive.
+    //
+    // The watcher owns reaping the server and removing the lockfiles, so when
+    // the process is dead (gone or zombie) we only clean up ourselves if there
+    // is no live watcher to do it. Deleting locks out from under a live watcher
+    // would race its cleanup and could clobber a freshly-restarted instance.
+    let server_liveness = process_liveness_checked(server_lock.pid, server_lock.start_time);
+    if server_liveness != Liveness::Alive {
+        let watcher_alive = sharedserver::core::watcher_alive(&server_lock);
+        let descr = match server_liveness {
+            Liveness::Zombie => "has died (zombie, awaiting reap)",
+            _ => "is not running",
+        };
+
         issues_found += 1;
-        print_warning(&format!(
-            "  Server process {} is not running but lockfile exists",
-            format_pid(server_lock.pid)
-        ));
 
-        // Clean up stale lockfiles
-        match delete_server_lock(name) {
-            Ok(_) => {
-                print_success("    Removed stale server lockfile");
-                issues_fixed += 1;
-            }
-            Err(e) => print_error(&format!("    Failed to remove server lockfile: {}", e)),
-        }
+        if watcher_alive {
+            // Defer to the watcher; it will reap and remove the lockfiles.
+            print_warning(&format!(
+                "  Server process {} {} — watcher is alive, cleanup pending",
+                format_pid(server_lock.pid),
+                descr
+            ));
+            println!(
+                "    {}",
+                "Note: the watcher will reap it and remove the lockfiles shortly".dimmed()
+            );
+        } else {
+            // No live watcher to clean up: this state is genuinely stale.
+            print_warning(&format!(
+                "  Server process {} {} and no watcher is running, but lockfile exists",
+                format_pid(server_lock.pid),
+                descr
+            ));
 
-        match delete_clients_lock(name) {
-            Ok(_) => {
-                print_success("    Removed stale clients lockfile");
-                issues_fixed += 1;
+            match delete_server_lock(name) {
+                Ok(_) => {
+                    print_success("    Removed stale server lockfile");
+                    issues_fixed += 1;
+                }
+                Err(e) => print_error(&format!("    Failed to remove server lockfile: {}", e)),
             }
-            Err(e) => print_error(&format!("    Failed to remove clients lockfile: {}", e)),
+
+            match delete_clients_lock(name) {
+                Ok(_) => {
+                    print_success("    Removed stale clients lockfile");
+                    issues_fixed += 1;
+                }
+                Err(e) => print_error(&format!("    Failed to remove clients lockfile: {}", e)),
+            }
         }
     } else {
         println!(
@@ -111,7 +139,7 @@ fn check_server(name: &str) -> Result<()> {
 
     // Check 3: Validate watcher process if it exists
     if let Some(watcher_pid) = server_lock.watcher_pid {
-        if !is_process_alive(watcher_pid) {
+        if !sharedserver::core::watcher_alive(&server_lock) {
             issues_found += 1;
             print_warning(&format!(
                 "  Watcher process {} is not running",
@@ -244,22 +272,21 @@ pub fn execute(server_name: Option<String>) -> Result<()> {
         }
 
         let entries = fs::read_dir(&lockdir)?;
-        let mut server_names = Vec::new();
+        let mut server_names = std::collections::BTreeSet::new();
 
+        // Discover by EITHER lockfile, so an orphaned `<name>.clients.json` with
+        // no matching `<name>.server.json` (e.g. from a partial teardown) is
+        // still found and cleaned up rather than lingering invisibly.
         for entry in entries {
             let entry = entry?;
-            let path = entry.path();
+            let filename = entry.file_name();
+            let filename = filename.to_string_lossy();
 
-            if let Some(filename) = path.file_name() {
-                let filename = filename.to_string_lossy();
-
-                if filename.ends_with(".server.json") {
-                    let name = filename
-                        .strip_suffix(".server.json")
-                        .unwrap_or(&filename)
-                        .to_string();
-                    server_names.push(name);
-                }
+            if let Some(name) = filename
+                .strip_suffix(".server.json")
+                .or_else(|| filename.strip_suffix(".clients.json"))
+            {
+                server_names.insert(name.to_string());
             }
         }
 
@@ -268,10 +295,12 @@ pub fn execute(server_name: Option<String>) -> Result<()> {
             return Ok(());
         }
 
-        server_names.sort();
-
+        // One bad server must not abort the whole sweep — doctor exists to clean
+        // up messes, so keep going and report any per-server failure.
         for name in server_names {
-            check_server(&name)?;
+            if let Err(e) = check_server(&name) {
+                print_error(&format!("  Failed to check '{}': {:#}", name, e));
+            }
         }
 
         println!("\n{}", "Health check complete".bold());

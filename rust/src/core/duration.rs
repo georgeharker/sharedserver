@@ -11,20 +11,29 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     let mut total_secs = 0u64;
     let mut current_num = String::new();
 
+    // Add `value * unit_secs` to the running total, rejecting overflow instead of
+    // panicking (debug) or silently wrapping to a tiny duration (release).
+    let add = |value: u64, unit_secs: u64, total: &mut u64| -> Result<()> {
+        let contribution = value
+            .checked_mul(unit_secs)
+            .ok_or_else(|| anyhow::anyhow!("Duration too large: {}", s))?;
+        *total = total
+            .checked_add(contribution)
+            .ok_or_else(|| anyhow::anyhow!("Duration too large: {}", s))?;
+        Ok(())
+    };
+
     for ch in s.chars() {
         if ch.is_ascii_digit() {
             current_num.push(ch);
         } else if ch == 'h' || ch == 'H' {
-            let hours: u64 = current_num.parse()?;
-            total_secs += hours * 3600;
+            add(current_num.parse()?, 3600, &mut total_secs)?;
             current_num.clear();
         } else if ch == 'm' || ch == 'M' {
-            let mins: u64 = current_num.parse()?;
-            total_secs += mins * 60;
+            add(current_num.parse()?, 60, &mut total_secs)?;
             current_num.clear();
         } else if ch == 's' || ch == 'S' {
-            let secs: u64 = current_num.parse()?;
-            total_secs += secs;
+            add(current_num.parse()?, 1, &mut total_secs)?;
             current_num.clear();
         } else if ch.is_whitespace() {
             continue;
@@ -60,5 +69,14 @@ mod tests {
         assert!(parse_duration("5").is_err());
         assert!(parse_duration("5x").is_err());
         assert!(parse_duration("0m").is_err());
+    }
+
+    #[test]
+    fn test_parse_duration_overflow_is_error() {
+        // Parses as u64 but *3600 overflows -> error, not a panic (debug) or a
+        // silently-wrapped tiny duration (release).
+        assert!(parse_duration("9223372036854775807h").is_err());
+        // Overflow while summing across units.
+        assert!(parse_duration("9999999999999999999s9999999999999999999s").is_err());
     }
 }

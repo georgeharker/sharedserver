@@ -312,7 +312,9 @@ The `doctor` command validates:
 - All client PIDs are valid
 - Refcount matches actual client count
 - State constraints are valid (Active has clients, Grace has none)
-- Automatically removes stale lockfiles for stopped servers
+- Removes **genuinely-stale** lockfiles (server dead **and** no live watcher).
+  When the server is dead but its watcher is still alive, `doctor` defers to the
+  watcher (which reaps and cleans up) rather than racing it.
 
 **View Debug Logs:**
 ```bash
@@ -320,17 +322,32 @@ The `doctor` command validates:
 sharedserver admin debug myserver
 ```
 
-**Force Kill Unresponsive Server:**
+### Stopping a server
+
+There are three ways to stop a server, in increasing severity. `stop` and
+`stop --force` *signal and then wait for the watcher to tear everything down*
+(server reaped, lockfiles gone, watcher exited) before returning — so a restart
+with the same name right afterward is safe.
+
 ```bash
-# Send SIGKILL and clean up all state (use when server won't stop normally)
+# Stop cleanly: SIGTERM, then wait up to --timeout (default 10s) for full teardown.
+# If the server ignores SIGTERM it errors and leaves state intact.
+sharedserver admin stop myserver
+sharedserver admin stop myserver --timeout 30s
+
+# Stop cleanly, else absolutely: SIGTERM, then escalate to SIGKILL on timeout.
+# On failure it reports exactly what survived and tells you to run `kill`.
+sharedserver admin stop myserver --force
+
+# The floor — absolutely stop now, even if the watcher is wedged.
+# SIGKILLs the watcher first, then the server group, then removes the lockfiles
+# itself. Use this when `stop --force` times out.
 sharedserver admin kill myserver
 ```
 
-**Emergency Stop:**
-```bash
-# Send SIGTERM (or SIGKILL with --force)
-sharedserver admin stop myserver --force
-```
+If `stop --force` reports something like *"watcher process N still alive,
+server lockfile remains"*, the watcher isn't tearing down — reach for
+`admin kill`, then `admin doctor` to confirm a clean slate.
 
 ## Summary
 

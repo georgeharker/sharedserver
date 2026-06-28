@@ -127,13 +127,16 @@ enum AdminCommands {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
-    /// Stop server immediately (emergency use)
+    /// Stop a server: SIGTERM, then wait for the watcher to tear it down
     Stop {
         /// Server name
         name: String,
-        /// Force kill if server doesn't stop gracefully
+        /// Escalate to SIGKILL if the server doesn't stop within the timeout
         #[arg(long)]
         force: bool,
+        /// How long to wait for teardown to converge (e.g. "10s", "1m", "500ms")
+        #[arg(long, default_value = "10s")]
+        timeout: String,
     },
     /// Increment reference count (low-level - use 'sharedserver use' instead)
     Incref {
@@ -142,17 +145,18 @@ enum AdminCommands {
         /// Optional client metadata
         #[arg(long)]
         metadata: Option<String>,
-        /// Client PID (defaults to current process)
+        /// Client PID this reference represents (required - must be a real,
+        /// long-lived process; the watcher drops the ref when it dies)
         #[arg(long)]
-        pid: Option<i32>,
+        pid: i32,
     },
     /// Decrement reference count (low-level - use 'sharedserver unuse' instead)
     Decref {
         /// Server name
         name: String,
-        /// Client PID (defaults to current process)
+        /// Client PID whose reference to release (required)
         #[arg(long)]
-        pid: Option<i32>,
+        pid: i32,
     },
     /// Show invocation log for debugging
     Debug {
@@ -216,7 +220,11 @@ fn main() -> Result<()> {
                 &command,
                 log_file.as_deref(),
             ),
-            AdminCommands::Stop { name, force } => commands::stop::execute(&name, force),
+            AdminCommands::Stop {
+                name,
+                force,
+                timeout,
+            } => commands::stop::execute(&name, force, &timeout),
             AdminCommands::Incref {
                 name,
                 metadata,

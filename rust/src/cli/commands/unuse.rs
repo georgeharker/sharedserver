@@ -31,11 +31,18 @@ pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
                 "Server {} is already in grace period, proceeding with detachment",
                 format_server_name(name)
             ));
-            super::decref::execute(name, Some(client_pid))
+            super::decref::execute(name, client_pid)
         }
         ServerState::Active => {
             // Normal case: decrement reference count
-            super::decref::execute(name, Some(client_pid))
+            super::decref::execute(name, client_pid)
+        }
+        ServerState::Defunct => {
+            // Server already died and is being torn down; nothing to detach from.
+            bail!(
+                "Server {} is shutting down (defunct, cleanup pending)",
+                format_server_name(name)
+            );
         }
     }
 }

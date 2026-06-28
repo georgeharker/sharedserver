@@ -46,6 +46,9 @@ pub fn invocation_log_path(name: &str) -> Result<PathBuf> {
 
 /// Append invocation to log
 pub fn log_invocation(name: &str, log: &InvocationLog) -> Result<()> {
+    use nix::fcntl::{flock, FlockArg};
+    use std::os::unix::io::AsRawFd;
+
     let path = invocation_log_path(name)?;
 
     let mut file = OpenOptions::new()
@@ -54,8 +57,12 @@ pub fn log_invocation(name: &str, log: &InvocationLog) -> Result<()> {
         .open(&path)
         .with_context(|| format!("Failed to open invocation log: {:?}", path))?;
 
-    let json = serde_json::to_string(log)?;
-    writeln!(file, "{}", json)?;
+    // Serialize the whole record (with its newline) once and write it in a
+    // single call under an exclusive lock, so concurrent writers can never
+    // interleave partial lines into the audit log.
+    let _ = flock(file.as_raw_fd(), FlockArg::LockExclusive);
+    let line = format!("{}\n", serde_json::to_string(log)?);
+    file.write_all(line.as_bytes())?;
 
     Ok(())
 }

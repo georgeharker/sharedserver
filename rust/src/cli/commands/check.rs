@@ -51,6 +51,23 @@ pub fn execute(name: &str) -> Result<()> {
                 "not running".red()
             );
         }
+        ServerState::Defunct => {
+            if let Ok(server_lock) = read_server_lock(name) {
+                println!(
+                    "{} {} is defunct (PID: {} died, cleanup pending)",
+                    "☠".magenta().bold(),
+                    format_server_name(name),
+                    format_pid(server_lock.pid)
+                );
+            } else {
+                println!(
+                    "{} {} is {}",
+                    "☠".magenta().bold(),
+                    format_server_name(name),
+                    "defunct".magenta()
+                );
+            }
+        }
     }
 
     std::process::exit(state.exit_code());

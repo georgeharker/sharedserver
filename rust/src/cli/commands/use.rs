@@ -69,7 +69,7 @@ pub fn execute(
         ServerState::Active => {
             // Server exists - just increment refcount
             // Command is ignored in this case (server already running with its command)
-            super::incref::execute(name, metadata, Some(client_pid))?;
+            super::incref::execute(name, metadata, client_pid)?;
 
             // Read refcount after incref
             if let Ok(clients_lock) = read_clients_lock(name) {
@@ -84,7 +84,7 @@ pub fn execute(
         }
         ServerState::Grace => {
             // Server in grace period - rescue it
-            super::incref::execute(name, metadata, Some(client_pid))?;
+            super::incref::execute(name, metadata, client_pid)?;
 
             // Read refcount after incref
             if let Ok(clients_lock) = read_clients_lock(name) {
@@ -96,6 +96,16 @@ pub fn execute(
             }
 
             Ok(())
+        }
+        ServerState::Defunct => {
+            // Previous instance died and is still being torn down by its watcher.
+            // Don't race the watcher's cleanup; ask the caller to retry.
+            bail!(
+                "Server '{}' is shutting down (defunct, cleanup pending). Retry shortly, \
+                 or run 'sharedserver admin kill {}' if it is stuck.",
+                name,
+                name
+            );
         }
     }
 }

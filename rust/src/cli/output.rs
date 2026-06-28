@@ -92,6 +92,7 @@ pub fn format_server_state(state: &ServerState) -> ColoredString {
         ServerState::Active => "● Active".green(),
         ServerState::Grace => "⚠ Grace".yellow(),
         ServerState::Stopped => "✗ Stopped".red(),
+        ServerState::Defunct => "☠ Defunct".magenta(),
     }
 }
 

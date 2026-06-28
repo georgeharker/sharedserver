@@ -1,9 +1,9 @@
 use anyhow::{bail, Context, Result};
-use sharedserver::core::{delete_clients_lock, get_server_state, ServerState};
+use sharedserver::core::{get_server_state, ClientsLock, ServerState};
 
 use crate::output::{format_refcount, format_server_name, print_success, print_warning};
 
-pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
+pub fn execute(name: &str, client_pid: i32) -> Result<()> {
     let state = get_server_state(name)?;
 
     match state {
@@ -11,7 +11,6 @@ pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
             bail!("Server '{}' is not running", name);
         }
         ServerState::Active => {
-            let client_pid = pid.unwrap_or_else(|| std::process::id() as i32);
             let new_refcount = decrement_refcount(name, client_pid)?;
 
             // Log success
@@ -46,68 +45,38 @@ pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
         ServerState::Grace => {
             bail!("Server '{}' is in grace period (refcount already 0)", name);
         }
+        ServerState::Defunct => {
+            bail!(
+                "Server '{}' is shutting down (defunct, cleanup pending)",
+                name
+            );
+        }
     }
 }
 
 fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
-    use nix::fcntl::{flock, FlockArg};
-    use std::fs::OpenOptions;
-    use std::os::unix::io::AsRawFd;
-
     let clients_path = sharedserver::core::lockfile::clients_lockfile_path(name)?;
 
-    // Open and lock the file manually so we can control when it's closed
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&clients_path)
-        .with_context(|| format!("Failed to open lockfile: {:?}", clients_path))?;
+    // Read-modify-write under a single exclusive lock. The clients lockfile is
+    // never deleted while the server lives (refcount 0 == grace, the file stays
+    // with an empty client map), so the inode is stable and this lock gives real
+    // mutual exclusion. The refcount is derived from the client map, so it can
+    // never drift from the actual set of attached clients.
+    sharedserver::core::lockfile::with_lock(&clients_path, |file| {
+        let mut clients: ClientsLock =
+            sharedserver::core::lockfile::read_json(file).unwrap_or_else(|_| ClientsLock::new());
 
-    // Acquire exclusive lock
-    flock(file.as_raw_fd(), FlockArg::LockExclusive)
-        .with_context(|| format!("Failed to acquire lock on: {:?}", clients_path))?;
+        if clients.clients.remove(&client_pid).is_none() {
+            bail!(
+                "Client {} was not attached to server '{}'",
+                client_pid,
+                name
+            );
+        }
 
-    let mut clients: sharedserver::core::ClientsLock =
-        sharedserver::core::lockfile::read_json(&mut file)?;
-
-    // Remove client - only decrement refcount if client was actually in the map
-    let client_existed = clients.clients.remove(&client_pid).is_some();
-
-    if !client_existed {
-        // Drop the file to release the lock before returning error
-        drop(file);
-        bail!(
-            "Client {} was not attached to server '{}'",
-            client_pid,
-            name
-        );
-    }
-
-    if clients.refcount > 0 {
-        clients.refcount -= 1;
-    }
-
-    // Sanity check: refcount should equal number of clients
-    if clients.refcount != clients.clients.len() as u32 {
-        eprintln!(
-            "WARNING: refcount mismatch in {}: refcount={}, clients.len()={}",
-            name,
-            clients.refcount,
-            clients.clients.len()
-        );
-        // Fix the mismatch by using the actual client count
         clients.refcount = clients.clients.len() as u32;
-    }
-
-    if clients.refcount == 0 {
-        // Drop the file to release the lock before deleting
-        drop(file);
-        delete_clients_lock(name)?;
-        Ok(0)
-    } else {
-        // Update clients.json with new refcount
-        sharedserver::core::lockfile::write_json(&mut file, &clients)?;
+        sharedserver::core::lockfile::write_json(file, &clients)?;
         Ok(clients.refcount)
-    }
+    })
+    .with_context(|| format!("Failed to decrement refcount for '{}'", name))
 }

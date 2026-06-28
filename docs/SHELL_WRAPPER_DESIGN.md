@@ -385,6 +385,105 @@ sharedserver-status [server-name]
 # Shows: PID, refcount, uptime, watchers
 ```
 
+## Teardown & Reaping (current implementation)
+
+> The sections above are the original design discussion. This section documents
+> how teardown actually works in the Rust implementation — it is the canonical
+> reference for `stop` / `stop --force` / `kill` and the watcher's role.
+
+### Process tree
+
+`sharedserver start` double-forks: the first child becomes the **watcher**
+(`setsid`, its own session); the watcher forks the **server** (`setpgid`, its own
+process group, then `exec`s the real command — e.g. `uv` → `python`). The
+original `start` process returns once setup is confirmed, so the watcher is
+reparented to init.
+
+```
+start ──fork──▶ watcher (setsid)  ──fork──▶ server (setpgid; exec cmd)
+                    │ parent of server, reaps it, owns lockfile cleanup
+```
+
+### Lockfiles & locking
+
+Two JSON files per server, each serving as *both* the data and its own `flock`
+mutex (there is no separate lock file):
+
+- `<name>.server.json` — the server side: `pid`, `command`, `grace_period`,
+  `watcher_pid`, `started_at`, and `start_time` (a `/proc` start stamp used to
+  detect PID reuse). Created at start, deleted at teardown.
+- `<name>.clients.json` — the clients side: `refcount` plus a `pid → {attached_at,
+  metadata}` map. Created at start and kept for the server's **whole life**.
+
+Crucially, `clients.json` is **never deleted while the server lives**: when the
+last client leaves, the file stays with an empty client map and `refcount 0`.
+**Grace is refcount 0, not file absence.** This keeps the inode stable, so the
+`flock` taken on the file is a real mutex — refcount changes are a single locked
+read-modify-write, and `refcount` is always derived from the client-map size
+(so a repeat attach from the same PID is idempotent). An earlier design deleted
+`clients.json` at refcount 0 and recreated it on attach; because `flock` binds to
+the inode, that delete/recreate broke mutual exclusion (two processes could lock
+different inodes for the same path) and lost updates. Keeping the file fixes it.
+
+### Single owner: the watcher
+
+The watcher is the **sole owner** of the server lifecycle:
+
+1. **Polls every 500 ms.** Removes dead client PIDs and re-derives the refcount;
+   starts the grace timer when refcount hits 0 (the clients file persists, now
+   holding an empty map); cancels it if a client re-attaches.
+2. **Reaps the server** with `waitpid(WNOHANG)` — it is the server's parent, so
+   it is the only process that can turn the exited server from a zombie into
+   truly-gone. Without this the server would linger as a zombie (`/proc/<pid>`
+   still present) until init adopted it.
+3. **Deletes both lockfiles**, *pid-guarded*: it only removes them if the server
+   lockfile still names the PID it was watching. This prevents a stale watcher
+   (one whose server was stopped out of band) from deleting the lockfiles of a
+   freshly-restarted instance that reused the same name.
+
+On grace expiry the watcher does SIGTERM-group → wait → SIGKILL-group → reap →
+delete → exit.
+
+### Liveness is tri-state
+
+`process_liveness(pid)` returns `Alive` / `Zombie` / `Gone` rather than a bool,
+so callers can distinguish "still running" from "dead but not yet reaped" from
+"fully gone". `is_process_alive()` is `== Alive`. A server lock whose PID is a
+`Zombie` surfaces as the **DEFUNCT** server state (a transient, cleanup-pending
+state). This is why a single misparse must never read as `Alive` — the
+`/proc/<pid>/stat` parser splits on the *last* `)` because `comm` can contain
+spaces and parens.
+
+### The three stop paths
+
+`stop` and `stop --force` are **signallers that wait for the watcher to
+converge** — they never delete lockfiles themselves, which removes any
+dual-deleter race:
+
+- **`stop`** — SIGTERM the server group, then wait (up to `--timeout`, default
+  10s) until the watcher has reaped the server, removed both lockfiles, and
+  exited. If the server ignores SIGTERM it errors and leaves state intact.
+- **`stop --force`** — same graceful path, then escalate to SIGKILL and wait
+  again. On failure it reports exactly what survived (server / watcher /
+  lockfile) and points at `kill`.
+- **`kill`** — the **floor**, and the only command that does not depend on the
+  watcher (use it when the watcher is wedged): SIGKILL the watcher first, then
+  the server's process group, then delete the lockfiles itself. The orphaned
+  server zombie is reaped by init.
+
+Fallback safety net: if `stop` finds the server dead but no live watcher (it
+crashed, or was never recorded), `stop` cleans up the orphaned lockfiles itself,
+pid-guarded — because nothing else will. Likewise `doctor` only removes a
+lockfile when the server is dead **and** there is no live watcher; otherwise it
+defers to the watcher.
+
+### Why this makes restart safe
+
+Because `stop`/`--force` block until the old watcher has exited and the
+lockfiles are gone, a restart with the same name immediately afterward starts
+from a clean slate — there is no surviving watcher to delete the new instance's
+lockfiles. (`kill` is restart-safe for the same reason: it leaves no watcher.)
+
 ## Conclusion
 
 The fork-watch-exec pattern provides a **transparent, efficient, and robust** solution for integrating shell-launched servers with sharedserver's refcounting system.

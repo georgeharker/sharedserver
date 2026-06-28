@@ -120,7 +120,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 | `unuse <name>` | Detach from server |
 | `list` | Show all managed servers |
 | `info <name> [--json]` | Server details (formatted or JSON) |
-| `check <name>` | Test if server exists (exit: 0=active, 1=grace, 2=stopped) |
+| `check <name>` | Test if server exists (exit: 0=active, 1=grace, 2=stopped, 3=defunct) |
 | `completion <shell>` | Generate shell completions (bash/zsh/fish) |
 
 **Admin commands** (troubleshooting):
@@ -128,12 +128,14 @@ sharedserver unuse webserver  # server stays alive if others need it
 | Command | Description |
 |---------|-------------|
 | `admin start <name> -- <cmd>` | Manually start a server with no clients (refcount 0) |
-| `admin stop <name> [--force]` | Emergency stop (SIGTERM) |
+| `admin stop <name> [--force] [--timeout DUR]` | SIGTERM, then wait for full teardown (`--force` escalates to SIGKILL) |
 | `admin incref <name> --pid <pid>` | Manual refcount increment |
 | `admin decref <name> --pid <pid>` | Manual refcount decrement |
 | `admin debug <name>` | Show invocation logs |
-| `admin doctor [name]` | Validate state, clean stale lockfiles |
-| `admin kill <name>` | Force kill (SIGKILL) and clean up |
+| `admin doctor [name]` | Validate state, clean genuinely-stale lockfiles |
+| `admin kill <name>` | Hard kill (SIGKILL watcher + server) and clean up — the floor |
+
+See [Stopping a server](#stopping-a-server-stop-vs-stop---force-vs-kill) for when to use each.
 
 **PID behavior:**
 - User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
@@ -156,14 +158,26 @@ sharedserver completion fish > ~/.config/fish/completions/sharedserver.fish
 
 ### Two-Lockfile Architecture
 
-Each server uses two lockfiles (default: `$XDG_RUNTIME_DIR/sharedserver/` or `/tmp/sharedserver/`):
+Each server uses two JSON state files plus an append-only log (default location
+`$XDG_RUNTIME_DIR/sharedserver/` or `/tmp/sharedserver/`). Each JSON file is
+*both* the data and its own `flock` mutex — there is no separate lock file.
 
-- **`<name>.server.json`** -- Server state: PID, command, start time, grace period, watcher PID. Created on start, deleted on final shutdown.
-- **`<name>.clients.json`** -- Client tracking: refcount, map of client PIDs with timestamps. Created on first attach, deleted when refcount hits zero (triggers grace period).
+- **`<name>.server.json`** — the **server** side: `pid`, `command` (argv only,
+  not env vars), `grace_period`, `watcher_pid`, `started_at`, and `start_time`
+  (an opaque `/proc` start stamp used to detect PID reuse). Created at start,
+  deleted at final teardown.
+- **`<name>.clients.json`** — the **clients** side: `refcount` and a map of
+  client PID → `{attached_at, metadata}`. Created at start and kept for the
+  whole life of the server; **refcount 0 means grace** (the file stays with an
+  empty client map — it is *not* deleted when the last client leaves). Deleted
+  only at final teardown, alongside `server.json`.
+- **`<name>.invocations.log`** — append-only audit log read by `admin debug`.
 
-Override location with `SHAREDSERVER_LOCKDIR`.
+`refcount` is always kept equal to the number of distinct client PIDs, so a
+repeat attach from the same PID is idempotent. Override the directory with
+`SHAREDSERVER_LOCKDIR`.
 
-### Three States
+### States
 
 ```
                  use/incref               unuse/decref (refcount=0)
@@ -177,17 +191,53 @@ Override location with `SHAREDSERVER_LOCKDIR`.
                               grace expires → SIGTERM → cleanup
 ```
 
-- **ACTIVE**: `clients.json` exists (refcount > 0), server running normally
-- **GRACE**: `clients.json` deleted (refcount = 0), server alive but countdown running
-- **STOPPED**: Both files deleted, server terminated
+- **ACTIVE**: refcount > 0, server running normally
+- **GRACE**: refcount = 0 (`clients.json` present with an empty client map), server alive but countdown running
+- **STOPPED**: both JSON files deleted, server terminated
+- **DEFUNCT**: Server process has died but the lockfiles haven't been removed yet
+  (the process is a zombie awaiting reap). Transient: the watcher reaps it and
+  removes the lockfiles, after which the state becomes STOPPED. Commands that
+  need a running server (`incref`, `use`, …) refuse a defunct server and ask you
+  to retry shortly.
 
-### Dead Client Detection
+### The watcher owns the lifecycle
 
-A watcher process polls every 5 seconds, checking each client PID:
-- Linux: `/proc/<pid>` existence
-- macOS: `proc_pidinfo()` system call
+Each running server has a **watcher** process (its parent). The watcher is the
+single owner of the server's lifecycle:
 
-Dead clients are automatically removed from the refcount. If all clients die (e.g., crash), the grace period starts automatically. This prevents refcount leaks.
+- It **polls every 500 ms**, checking each client PID (Linux: `/proc/<pid>`
+  state; macOS: `proc_pidinfo()`). Dead clients are removed from the refcount;
+  if all clients die, the grace period starts automatically (no refcount leaks).
+- It **reaps the server** (`waitpid`) when it exits, so no zombie lingers.
+- It is the **only thing that deletes the lockfiles** on the normal path, keyed
+  to the server PID it owns — so a stale watcher can never clobber a freshly
+  restarted instance that reused the same name.
+
+`stop`/`stop --force` cooperate with this by *signalling and waiting* rather than
+deleting lockfiles themselves; `kill` is the exception (see below).
+
+### Stopping a server: `stop` vs `stop --force` vs `kill`
+
+| | First signal | Graceful wait | Escalates to SIGKILL | Kills the watcher | Deletes lockfiles |
+|---|---|---|---|---|---|
+| `stop` | SIGTERM | yes (`--timeout`) | no — errors, leaves state intact | no | watcher does |
+| `stop --force` | SIGTERM | yes (`--timeout`) | yes, then waits again | no | watcher does |
+| `kill` | SIGKILL | none | n/a (starts at SIGKILL) | **yes** | **itself** |
+
+- **`stop`** — *stop cleanly now.* Sends SIGTERM, then **waits until the watcher
+  has reaped the server, removed the lockfiles, and exited**. If the server
+  ignores SIGTERM within `--timeout` (default 10s) it errors and changes
+  nothing — use `--force`.
+- **`stop --force`** — *stop cleanly, else absolutely stop.* Same graceful path,
+  then escalates to SIGKILL and waits again. On failure it reports exactly what
+  survived (server / watcher / lockfile) and points you at `kill`.
+- **`kill`** — *the floor: absolutely stop now.* Never depends on the watcher
+  (use it when the watcher is wedged): SIGKILLs the watcher first, then the
+  server's process group, then removes the lockfiles itself. The orphaned server
+  is reaped by init.
+
+Because `stop`/`--force` wait for full teardown before returning, an immediate
+restart with the same name is safe — there is no surviving watcher to race.
 
 ### Lifecycle Timeline
 

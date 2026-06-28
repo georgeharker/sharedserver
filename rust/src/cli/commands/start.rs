@@ -1,9 +1,11 @@
 use anyhow::{anyhow, bail, Context, Result};
+use nix::sys::signal::{kill, killpg, Signal};
+use nix::sys::wait::waitpid;
 use nix::unistd::{fork, setpgid, setsid, ForkResult, Pid};
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, parse_duration,
-    read_server_lock, server_lock_exists, write_clients_lock, write_server_lock, ClientInfo,
-    ClientsLock, ServerLock, ServerState,
+    process_start_stamp, read_server_lock, server_lock_exists, write_clients_lock,
+    write_server_lock, ClientInfo, ClientsLock, ServerLock, ServerState,
 };
 use std::collections::HashMap;
 
@@ -64,6 +66,16 @@ fn execute_internal(
                 state.as_str()
             );
         }
+        ServerState::Defunct => {
+            // Previous instance died but its watcher hasn't finished reaping and
+            // removing the lockfiles yet. Don't race the watcher's cleanup.
+            bail!(
+                "Server '{}' is shutting down (defunct, cleanup pending). Retry shortly, \
+                 or run 'sharedserver admin kill {}' if it is stuck.",
+                name,
+                name
+            );
+        }
         ServerState::Stopped => {
             // Clean up any stale locks
             if server_lock_exists(name) {
@@ -84,25 +96,37 @@ fn execute_internal(
         grace_period: grace_period.to_string(),
         watcher_pid: None,
         started_at: chrono::Utc::now(),
+        // Filled in by the watcher once it knows the real server PID.
+        start_time: None,
+        watcher_start_time: None,
     };
 
     write_server_lock(name, &server_lock).context("Failed to create server lockfile")?;
 
-    // Create clients lockfile if starting with an initial client (atomic operation)
-    // Otherwise, server starts with no clients (refcount=0)
+    // Always create the clients lockfile. It lives for the whole life of the
+    // server and is the single mutual-exclusion point for refcount changes; it
+    // is no longer deleted when the refcount hits zero (refcount 0 == grace).
+    // `use` seeds it with one client (Active); a bare `admin start` seeds it
+    // empty (refcount 0 == grace immediately, as before).
+    let mut clients = ClientsLock::new();
     if let Some((client_pid, metadata)) = initial_client {
-        let mut clients = ClientsLock::new();
-        clients.refcount = 1;
         clients
             .clients
             .insert(client_pid, ClientInfo::new(metadata));
-        write_clients_lock(name, &clients).context("Failed to create clients lockfile")?;
     }
+    clients.refcount = clients.clients.len() as u32;
+    write_clients_lock(name, &clients).context("Failed to create clients lockfile")?;
 
     // Double fork strategy:
     // 1. First fork: Parent = sharedserver (returns), Child = watcher
     // 2. Second fork (in watcher): Parent = watcher (monitors), Child = server (execs)
-
+    //
+    // SAFETY: the children below call non-async-signal-safe code (allocation,
+    // serde, file I/O) between fork and exec. That is sound ONLY because this
+    // CLI is single-threaded — there is no async runtime or background thread,
+    // so no other thread can hold a lock (e.g. the allocator's) across the fork.
+    // If a background thread is ever introduced, this must move to a
+    // post-fork-exec re-invocation or async-signal-safe-only code.
     match unsafe { fork() } {
         Ok(ForkResult::Child) => {
             // First child: become the watcher process
@@ -140,6 +164,10 @@ fn execute_internal(
                     };
                     server_lock.pid = server_child.as_raw();
                     server_lock.watcher_pid = Some(watcher_pid);
+                    // Capture start stamps now so later liveness checks can
+                    // detect PID reuse (see process_liveness_checked).
+                    server_lock.start_time = process_start_stamp(server_child.as_raw());
+                    server_lock.watcher_start_time = process_start_stamp(watcher_pid);
 
                     if let Err(e) = write_server_lock(name, &server_lock) {
                         eprintln!("Watcher: Failed to update server lock ({}), cleaning up", e);
@@ -245,44 +273,84 @@ fn execute_internal(
             // Original sharedserver process: wait briefly for watcher to set up,
             // then return to caller
 
-            // Give watcher time to fork server and update locks
-            // We need a more reliable way than just sleeping - poll for the lock update
+            // Wait for the watcher to publish the real PIDs. "Published" means
+            // it recorded its own PID and the server PID (written together) —
+            // i.e. the process was *launched*, NOT that the server is ready or
+            // listening. A slow-to-initialize server still publishes
+            // immediately, so it never trips this.
+            //
+            // We distinguish "just slow" from "actually failed" by the watcher's
+            // liveness, not a flat deadline: a live watcher will publish within
+            // milliseconds of finishing its (possibly slow, fsync-bound) lock
+            // write, so while it's alive we keep waiting up to a generous cap.
+            // We only give up early when the watcher has *died* without
+            // publishing — a real launch failure.
+            let self_pid = std::process::id() as i32;
             let start = std::time::Instant::now();
-            let timeout = std::time::Duration::from_secs(2);
+            let hard_cap = std::time::Duration::from_secs(10);
 
+            let mut published: Option<ServerLock> = None;
             loop {
-                if let Ok(server_lock) = read_server_lock(name) {
-                    // Check if watcher has updated the PIDs
-                    if server_lock.watcher_pid.is_some()
-                        && server_lock.pid != std::process::id() as i32
-                    {
-                        // Successfully started
-                        let _ = sharedserver::core::log::log_invocation(
-                            name,
-                            &sharedserver::core::log::InvocationLog::success(
-                                "start",
-                                &[name.to_string()],
-                                Some(serde_json::json!({
-                                    "server_pid": server_lock.pid,
-                                    "watcher_pid": watcher_child.as_raw(),
-                                    "command": command,
-                                    "grace_period": grace_period,
-                                })),
-                            ),
-                        );
-                        return Ok(());
+                if let Ok(lock) = read_server_lock(name) {
+                    if lock.watcher_pid.is_some() && lock.pid != self_pid {
+                        published = Some(lock);
+                        break;
                     }
                 }
-
-                if start.elapsed() > timeout {
-                    // Clean up lock files before bailing
-                    let _ = delete_server_lock(name);
-                    let _ = delete_clients_lock(name);
-                    bail!("Timeout waiting for server to start");
+                // Watcher gone without publishing -> it never will. (A zombie
+                // watcher reads as not-alive here, which is exactly right.)
+                // Re-check the lock once in case it published as it exited.
+                if !is_process_alive(watcher_child.as_raw()) {
+                    if let Ok(lock) = read_server_lock(name) {
+                        if lock.watcher_pid.is_some() && lock.pid != self_pid {
+                            published = Some(lock);
+                        }
+                    }
+                    break;
                 }
-
+                // Safety net: watcher alive but wedged far too long.
+                if start.elapsed() > hard_cap {
+                    break;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
+
+            if let Some(lock) = published {
+                let _ = sharedserver::core::log::log_invocation(
+                    name,
+                    &sharedserver::core::log::InvocationLog::success(
+                        "start",
+                        &[name.to_string()],
+                        Some(serde_json::json!({
+                            "server_pid": lock.pid,
+                            "watcher_pid": watcher_child.as_raw(),
+                            "command": command,
+                            "grace_period": grace_period,
+                        })),
+                    ),
+                );
+                return Ok(());
+            }
+
+            // Genuine timeout. Tear down deterministically so we never leave an
+            // orphaned watcher/server running (which would also let a retry
+            // start a second instance): kill the watcher so it can't publish
+            // late, kill any server it already forked, reap the watcher, and
+            // remove the lockfiles. After this, `start` returning Err means the
+            // state is fully clean.
+            let _ = kill(watcher_child, Signal::SIGKILL);
+            if let Ok(lock) = read_server_lock(name) {
+                if lock.pid != self_pid {
+                    let server_pid = Pid::from_raw(lock.pid);
+                    if killpg(server_pid, Signal::SIGKILL).is_err() {
+                        let _ = kill(server_pid, Signal::SIGKILL);
+                    }
+                }
+            }
+            let _ = waitpid(watcher_child, None);
+            let _ = delete_server_lock(name);
+            let _ = delete_clients_lock(name);
+            bail!("Timeout waiting for server to start (cleaned up partial state)");
         }
         Err(e) => {
             // Fork failed, clean up

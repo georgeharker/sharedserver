@@ -14,6 +14,19 @@ pub struct ServerLock {
     pub grace_period: String,
     pub watcher_pid: Option<i32>,
     pub started_at: chrono::DateTime<chrono::Utc>,
+    /// Opaque, platform-specific process start stamp for `pid`, captured when the
+    /// server was launched. Used to detect PID reuse: if the OS recycles `pid`
+    /// for an unrelated process, its start stamp won't match and we must not
+    /// treat it as the server or signal it. `None` for locks written before this
+    /// field existed (the identity check is then skipped, falling back to a plain
+    /// liveness probe).
+    #[serde(default)]
+    pub start_time: Option<u64>,
+    /// Same as `start_time`, but for `watcher_pid` — so a recycled watcher PID
+    /// isn't mistaken for a live watcher (e.g. by `stop`'s convergence wait or
+    /// `kill`). `None` on older locks.
+    #[serde(default)]
+    pub watcher_start_time: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +204,30 @@ pub fn delete_clients_lock(name: &str) -> Result<()> {
             .with_context(|| format!("Failed to delete clients lockfile: {:?}", path))?;
     }
     Ok(())
+}
+
+/// Delete both lockfiles for `name`, but only if the server lockfile still
+/// refers to `pid`.
+///
+/// This guards against deleting a *newer* instance's lockfiles after a restart
+/// reused the name: if the server lock now names a different pid, we leave both
+/// files alone. If the lock is already gone/unreadable, deletion is a safe
+/// no-op. Used by both the watcher and `stop` so teardown has a single,
+/// race-free cleanup path.
+///
+/// Note: the pid check and the unlink are not one atomic step, so there is a
+/// microsecond-wide window where a brand-new instance could publish between the
+/// check and the unlink and have its `server.json` removed. In practice this is
+/// unreachable: `stop` waits for full teardown before returning, so restarts are
+/// sequential, and the watcher only calls this once its own server is dead.
+pub fn delete_locks_owned_by(name: &str, pid: i32) {
+    if let Ok(lock) = read_server_lock(name) {
+        if lock.pid != pid {
+            return;
+        }
+    }
+    let _ = delete_server_lock(name);
+    let _ = delete_clients_lock(name);
 }
 
 /// Check if server lockfile exists

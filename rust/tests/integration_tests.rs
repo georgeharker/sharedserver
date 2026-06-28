@@ -6,6 +6,16 @@ use std::thread;
 use std::time::Duration;
 use serial_test::serial;
 
+/// Dedicated, isolated lockfile directory for the integration tests.
+///
+/// Every spawned command is pointed here via SHAREDSERVER_LOCKDIR so the tests
+/// never touch the user's real lockdir (XDG_RUNTIME_DIR/sharedserver or
+/// /tmp/sharedserver), and so lock-existence assertions look in the same place
+/// the binary actually writes.
+fn test_lockdir() -> PathBuf {
+    env::temp_dir().join("sharedserver-inttest")
+}
+
 /// Get the path to the sharedserver binary
 fn get_binary_path() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -28,7 +38,7 @@ fn get_test_helper_path(script_name: &str) -> PathBuf {
 
 /// Clean up lock files for a given server name
 fn cleanup_lock_files(server_name: &str) {
-    let temp_dir = env::temp_dir().join("sharedserver");
+    let temp_dir = test_lockdir();
 
     let server_lock = temp_dir.join(format!("{}.server.json", server_name));
     let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
@@ -47,8 +57,11 @@ fn run_command(args: &[&str]) -> std::process::Output {
 /// Run a command with a specified timeout
 fn run_command_with_timeout(args: &[&str], timeout: Duration) -> std::process::Output {
     let binary = get_binary_path();
+    let lockdir = test_lockdir();
+    let _ = fs::create_dir_all(&lockdir);
     let child = Command::new(&binary)
         .args(args)
+        .env("SHAREDSERVER_LOCKDIR", &lockdir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -96,11 +109,12 @@ fn test_quick_death_cleanup() {
         immediate_exit_script.to_str().unwrap(),
     ]);
 
-    // Wait for watcher to detect death and clean up (polls every 5s + buffer)
-    thread::sleep(Duration::from_secs(7));
+    // Wait for the watcher to detect the death and clean up. The watcher polls
+    // every 500ms and reaps the server, so a couple of seconds is plenty.
+    thread::sleep(Duration::from_secs(3));
 
     // CRITICAL: Both lock files must be deleted
-    let temp_dir = env::temp_dir().join("sharedserver");
+    let temp_dir = test_lockdir();
     let server_lock = temp_dir.join(format!("{}.server.json", server_name));
     let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
 
@@ -157,31 +171,61 @@ fn test_environment_variables() {
 }
 
 #[test]
+#[serial]
 fn test_server_lifecycle() {
-    // SMOKE TEST: Basic sanity check that start/stop commands work.
-    // The comprehensive bash test suite covers detailed lifecycle scenarios.
-    // This just verifies the CLI fundamentals are functional.
+    // Real lifecycle check: a long-running server starts, is visibly running,
+    // and `stop` tears it down completely (server reaped, lockfiles removed)
+    // before returning. This exercises the graceful converge-wait stop path.
 
     let server_name = "test_lifecycle";
     cleanup_lock_files(server_name);
 
-    let echo_env_script = get_test_helper_path("echo_env.sh");
+    let long_running_script = get_test_helper_path("long_running.sh");
+    let test_pid = std::process::id().to_string();
 
-    // Start server - should succeed
+    // Start a persistent server with this test as the client (refcount=1).
     let output = run_command(&[
-        "admin",
-        "start",
+        "use",
         server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
         "--",
-        echo_env_script.to_str().unwrap(),
+        long_running_script.to_str().unwrap(),
     ]);
-    assert!(output.status.success(), "Start command should work");
+    assert!(
+        output.status.success(),
+        "Start command should work. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-    // Attempt to stop (may already be stopped if server died quickly)
-    thread::sleep(Duration::from_secs(1));
-    run_command(&["admin", "stop", server_name]);
+    thread::sleep(Duration::from_secs(2));
 
-    // Cleanup
+    // Precondition: the server is actually running.
+    let temp_dir = test_lockdir();
+    let server_lock = temp_dir.join(format!("{}.server.json", server_name));
+    let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
+    assert!(server_lock.exists(), "Server lock should exist while running");
+
+    // Stop should converge: it waits for full teardown before returning.
+    let stop = run_command(&["admin", "stop", server_name, "--timeout", "8s"]);
+    assert!(
+        stop.status.success(),
+        "Graceful stop should succeed. stderr: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+
+    // Postcondition: both lockfiles are gone (the watcher cleaned up).
+    assert!(
+        !server_lock.exists(),
+        "Stop must remove the server lockfile"
+    );
+    assert!(
+        !clients_lock.exists(),
+        "Stop must remove the clients lockfile"
+    );
+
     cleanup_lock_files(server_name);
 }
 
@@ -297,34 +341,50 @@ fn test_admin_doctor_stale_lockfile() {
     let info_str = String::from_utf8_lossy(&info_output.stdout);
     eprintln!("Info output:\n{}", info_str);
 
-    // Extract PID from output (format: "Server: name (PID: 12345)")
-    let pid: i32 = info_str
-        .lines()
-        .find(|line| line.contains("PID:"))
-        .and_then(|line| {
-            line.split("PID:")
-                .nth(1)?
-                .split(')')
-                .next()?
-                .trim()
-                .parse()
-                .ok()
-        })
-        .unwrap_or_else(|| {
-            panic!("Should find PID in info output. Full output:\n{}", info_str);
-        });
+    // Read the server lockfile directly to get both the server pid and the
+    // watcher pid. We must kill BOTH to create a genuinely-stale lockfile: the
+    // watcher now reaps the server and removes the lockfiles itself, so if it
+    // were left alive it (not doctor) would do the cleanup.
+    let temp_dir = test_lockdir();
+    let server_lock_path = temp_dir.join(format!("{}.server.json", server_name));
+    let lock_json = fs::read_to_string(&server_lock_path).expect("server lock should exist");
+    let extract = |key: &str| -> Option<i32> {
+        lock_json
+            .split(&format!("\"{}\"", key))
+            .nth(1)?
+            .split(',')
+            .next()?
+            .split('}')
+            .next()?
+            .trim_start_matches([':', ' '])
+            .trim()
+            .parse()
+            .ok()
+    };
+    let pid = extract("pid").unwrap_or_else(|| {
+        panic!("Should find pid in lock. Lock:\n{}", lock_json);
+    });
+    let watcher_pid = extract("watcher_pid");
 
-    // Kill the process directly (simulating crash/SIGKILL)
+    // Kill the watcher first (so it can't reap/clean), then the server.
+    // This simulates a crash that takes out the whole apparatus, leaving a
+    // stale lockfile with no live watcher — exactly what doctor must clean.
     #[cfg(unix)]
     {
         use std::process::Command as ProcessCommand;
+        if let Some(wpid) = watcher_pid {
+            let _ = ProcessCommand::new("kill")
+                .args(["-9", &wpid.to_string()])
+                .output();
+        }
         ProcessCommand::new("kill")
-            .args(&["-9", &pid.to_string()])
+            .args(["-9", &pid.to_string()])
             .output()
             .expect("Should be able to kill process");
     }
 
-    // Wait a moment for process to die
+    // Wait a moment for the processes to die (and not be cleaned up, since the
+    // watcher is now dead too).
     thread::sleep(Duration::from_secs(1));
 
     // Now run doctor - it should detect and clean up stale lockfile
@@ -342,7 +402,7 @@ fn test_admin_doctor_stale_lockfile() {
     );
 
     // Verify lockfiles are actually cleaned up
-    let temp_dir = env::temp_dir().join("sharedserver");
+    let temp_dir = test_lockdir();
     let server_lock = temp_dir.join(format!("{}.server.json", server_name));
 
     // After doctor runs, server lockfile should be cleaned up
@@ -424,7 +484,7 @@ fn test_admin_kill_command() {
     );
 
     // Verify lockfiles are cleaned up
-    let temp_dir = env::temp_dir().join("sharedserver");
+    let temp_dir = test_lockdir();
     let server_lock = temp_dir.join(format!("{}.server.json", server_name));
     let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
 
@@ -432,6 +492,294 @@ fn test_admin_kill_command() {
     assert!(
         !clients_lock.exists(),
         "Kill should remove clients lockfile"
+    );
+
+    cleanup_lock_files(server_name);
+}
+
+#[test]
+#[serial]
+fn test_stop_force_escalation() {
+    // A server that ignores SIGTERM: plain `stop` must time out (and leave state
+    // intact, telling the user to use --force), while `stop --force` escalates to
+    // SIGKILL and tears everything down.
+    let server_name = "test_stop_force";
+    cleanup_lock_files(server_name);
+
+    let ignore_sigterm_script = get_test_helper_path("ignore_sigterm.sh");
+    let test_pid = std::process::id().to_string();
+
+    let output = run_command(&[
+        "use",
+        server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
+        "--",
+        ignore_sigterm_script.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "Server should start. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    thread::sleep(Duration::from_secs(2));
+
+    // Precondition: it's really running.
+    let temp_dir = test_lockdir();
+    let server_lock = temp_dir.join(format!("{}.server.json", server_name));
+    assert!(server_lock.exists(), "Server lock should exist before stop");
+
+    // Plain stop must FAIL (SIGTERM ignored) and not escalate.
+    let stop = run_command(&["admin", "stop", server_name, "--timeout", "1s"]);
+    assert!(
+        !stop.status.success(),
+        "Plain stop should fail when SIGTERM is ignored"
+    );
+    let stop_err = String::from_utf8_lossy(&stop.stderr);
+    assert!(
+        stop_err.contains("did not stop") && stop_err.contains("--force"),
+        "Plain stop should tell the user to use --force. stderr: {}",
+        stop_err
+    );
+    // State must be intact: server still running, lock still present.
+    assert!(
+        server_lock.exists(),
+        "Plain stop must leave the server lockfile intact on timeout"
+    );
+
+    // Forced stop must succeed: escalates to SIGKILL, then converges.
+    let force = run_command(&["admin", "stop", server_name, "--force", "--timeout", "5s"]);
+    assert!(
+        force.status.success(),
+        "Forced stop should succeed. stderr: {}",
+        String::from_utf8_lossy(&force.stderr)
+    );
+
+    // Fully torn down: both lockfiles gone.
+    assert!(
+        !server_lock.exists(),
+        "Forced stop must remove the server lockfile"
+    );
+    let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
+    assert!(
+        !clients_lock.exists(),
+        "Forced stop must remove the clients lockfile"
+    );
+
+    cleanup_lock_files(server_name);
+}
+
+#[test]
+#[serial]
+fn test_restart_after_force_stop() {
+    // Restart safety: `stop --force` must fully tear down (server gone, watcher
+    // gone, lockfiles removed) before returning, so an immediate re-start with
+    // the same name succeeds and is not clobbered by the old watcher.
+    let server_name = "test_restart";
+    cleanup_lock_files(server_name);
+
+    let long_running_script = get_test_helper_path("long_running.sh");
+    let test_pid = std::process::id().to_string();
+
+    // Start instance #1
+    let output = run_command(&[
+        "use",
+        server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
+        "--",
+        long_running_script.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "First start should succeed");
+    thread::sleep(Duration::from_secs(2));
+
+    // Force-stop instance #1. This must converge before returning.
+    let stop = run_command(&["admin", "stop", server_name, "--force", "--timeout", "8s"]);
+    assert!(
+        stop.status.success(),
+        "Force stop should succeed. stderr: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+
+    // Locks must be gone immediately after a successful stop.
+    let temp_dir = test_lockdir();
+    let server_lock = temp_dir.join(format!("{}.server.json", server_name));
+    assert!(
+        !server_lock.exists(),
+        "Server lockfile must be gone after successful force stop"
+    );
+
+    // Immediately start instance #2 with the same name.
+    let output = run_command(&[
+        "use",
+        server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
+        "--",
+        long_running_script.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "Restart should succeed. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Give any stale watcher from instance #1 a chance to (wrongly) delete the
+    // new instance's lockfiles, then confirm instance #2 is still healthy.
+    thread::sleep(Duration::from_secs(2));
+    let list_output = run_command(&["list"]);
+    let list_str = String::from_utf8_lossy(&list_output.stdout);
+    assert!(
+        list_str.contains(server_name),
+        "Restarted server should appear in list (not clobbered by old watcher)"
+    );
+    assert!(
+        server_lock.exists(),
+        "Restarted server's lockfile must still exist"
+    );
+
+    // Cleanup
+    run_command(&["admin", "kill", server_name]);
+    thread::sleep(Duration::from_secs(1));
+    cleanup_lock_files(server_name);
+}
+
+#[test]
+#[serial]
+fn test_incref_idempotent_and_grace_keeps_clients_lock() {
+    // H1: a repeat attach from the SAME client PID must not inflate the refcount.
+    // H3: when the refcount hits 0 the server enters grace but stays alive, and
+    // the clients lockfile is kept (no longer deleted mid-life).
+    let server_name = "test_idem_grace";
+    cleanup_lock_files(server_name);
+
+    let long_running = get_test_helper_path("long_running.sh");
+    let test_pid = std::process::id().to_string();
+
+    let out = run_command(&[
+        "use",
+        server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
+        "--",
+        long_running.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "use should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    thread::sleep(Duration::from_secs(2));
+
+    // H1: second incref from the same PID — refcount must stay 1.
+    let inc = run_command(&["admin", "incref", server_name, "--pid", &test_pid]);
+    assert!(
+        inc.status.success(),
+        "incref should succeed: {}",
+        String::from_utf8_lossy(&inc.stderr)
+    );
+    let info = run_command(&["info", server_name, "--json"]);
+    let info_s = String::from_utf8_lossy(&info.stdout);
+    assert!(
+        info_s.contains("\"refcount\": 1"),
+        "same-PID re-incref must keep refcount at 1, got:\n{}",
+        info_s
+    );
+
+    // H3: a single decref drops to 0 -> grace (alive, exit 1), not stopped, and
+    // the clients lockfile must still exist.
+    let dec = run_command(&["admin", "decref", server_name, "--pid", &test_pid]);
+    assert!(
+        dec.status.success(),
+        "decref should succeed: {}",
+        String::from_utf8_lossy(&dec.stderr)
+    );
+    let chk = run_command(&["check", server_name]);
+    assert_eq!(
+        chk.status.code(),
+        Some(1),
+        "after decref to 0 the server should be in grace (exit 1), not stopped"
+    );
+    let clients_lock = test_lockdir().join(format!("{}.clients.json", server_name));
+    assert!(
+        clients_lock.exists(),
+        "clients lockfile must persist during grace (H3)"
+    );
+
+    run_command(&["admin", "kill", server_name]);
+    thread::sleep(Duration::from_secs(1));
+    cleanup_lock_files(server_name);
+}
+
+#[test]
+fn test_admin_incref_decref_require_pid() {
+    // M3: the low-level admin incref/decref must require --pid (no self-default,
+    // which would register the short-lived CLI process as a dead client).
+    let inc = run_command(&["admin", "incref", "whatever"]);
+    assert!(
+        !inc.status.success(),
+        "admin incref without --pid should fail"
+    );
+    let inc_err = String::from_utf8_lossy(&inc.stderr).to_lowercase();
+    assert!(
+        inc_err.contains("pid"),
+        "incref error should mention the required --pid, got: {}",
+        inc_err
+    );
+
+    let dec = run_command(&["admin", "decref", "whatever"]);
+    assert!(
+        !dec.status.success(),
+        "admin decref without --pid should fail"
+    );
+    let dec_err = String::from_utf8_lossy(&dec.stderr).to_lowercase();
+    assert!(
+        dec_err.contains("pid"),
+        "decref error should mention the required --pid, got: {}",
+        dec_err
+    );
+}
+
+#[test]
+#[serial]
+fn test_corrupt_server_lock_is_tolerated_and_cleaned() {
+    // M4: a corrupt/unparseable server lock must read as Stopped (not a hard
+    // error from every command). M1: doctor must clean it rather than abort.
+    let server_name = "test_corrupt";
+    cleanup_lock_files(server_name);
+
+    let lockdir = test_lockdir();
+    let _ = fs::create_dir_all(&lockdir);
+    let server_lock = lockdir.join(format!("{}.server.json", server_name));
+    fs::write(&server_lock, b"this is not valid json {{{").expect("write corrupt lock");
+
+    // `check` must report stopped (exit 2), not crash with a parse error.
+    let chk = run_command(&["check", server_name]);
+    assert_eq!(
+        chk.status.code(),
+        Some(2),
+        "corrupt lock should read as stopped (exit 2). stderr: {}",
+        String::from_utf8_lossy(&chk.stderr)
+    );
+
+    // `doctor` must succeed and remove the corrupt lock.
+    let doc = run_command(&["admin", "doctor", server_name]);
+    assert!(
+        doc.status.success(),
+        "doctor should succeed on a corrupt lock. stderr: {}",
+        String::from_utf8_lossy(&doc.stderr)
+    );
+    assert!(
+        !server_lock.exists(),
+        "doctor should have removed the corrupt server lock"
     );
 
     cleanup_lock_files(server_name);

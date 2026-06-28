@@ -1,11 +1,9 @@
 use anyhow::{bail, Context, Result};
-use sharedserver::core::{
-    clients_lock_exists, get_server_state, write_clients_lock, ClientInfo, ClientsLock, ServerState,
-};
+use sharedserver::core::{get_server_state, ClientInfo, ClientsLock, ServerState};
 
 use crate::output::{format_refcount, format_server_name, print_success};
 
-pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result<()> {
+pub fn execute(name: &str, metadata: Option<String>, client_pid: i32) -> Result<()> {
     let state = get_server_state(name)?;
 
     match state {
@@ -15,9 +13,13 @@ pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result
                 name
             );
         }
+        ServerState::Defunct => {
+            bail!(
+                "Server '{}' is shutting down (defunct, cleanup pending). Retry shortly.",
+                name
+            );
+        }
         ServerState::Active | ServerState::Grace => {
-            // Increment refcount
-            let client_pid = pid.unwrap_or_else(|| std::process::id() as i32);
             let new_refcount = increment_refcount(name, metadata, client_pid)?;
 
             // Log success
@@ -46,26 +48,20 @@ pub fn execute(name: &str, metadata: Option<String>, pid: Option<i32>) -> Result
 fn increment_refcount(name: &str, metadata: Option<String>, client_pid: i32) -> Result<u32> {
     let clients_path = sharedserver::core::lockfile::clients_lockfile_path(name)?;
 
-    if !clients_lock_exists(name) {
-        // Grace period: recreate clients.json
-        let mut clients = ClientsLock::new();
-        clients.refcount = 1;
-        clients
-            .clients
-            .insert(client_pid, ClientInfo::new(metadata));
-
-        write_clients_lock(name, &clients)?;
-        return Ok(1);
-    }
-
-    // Active state: increment existing refcount
+    // Read-modify-write the whole clients lock under a single exclusive lock.
+    // The clients lockfile is created at server start and kept for the server's
+    // whole life (never deleted on grace), so the inode is stable and this lock
+    // provides real mutual exclusion. The refcount is *derived* from the number
+    // of distinct client PIDs, so a repeat attach from the same PID is
+    // idempotent: a HashMap insert that replaces an existing key must not bump
+    // the count.
     sharedserver::core::lockfile::with_lock(&clients_path, |file| {
-        let mut clients: ClientsLock = sharedserver::core::lockfile::read_json(file)?;
-        clients.refcount += 1;
+        let mut clients: ClientsLock =
+            sharedserver::core::lockfile::read_json(file).unwrap_or_else(|_| ClientsLock::new());
         clients
             .clients
             .insert(client_pid, ClientInfo::new(metadata));
-
+        clients.refcount = clients.clients.len() as u32;
         sharedserver::core::lockfile::write_json(file, &clients)?;
         Ok(clients.refcount)
     })

@@ -8,8 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `admin stop` now takes `--timeout <DUR>` (default `10s`) bounding how long it
+  waits for teardown to converge.
+- New process liveness primitive `process_liveness()` returning `Alive` /
+  `Zombie` / `Gone`, and a corresponding **`defunct`** server state (server
+  process died but lockfiles not yet removed). `check` now exits `3` for defunct.
 
 ### Changed
+- **`admin incref` / `admin decref` now require `--pid`.** These low-level
+  commands previously defaulted the client PID to the (immediately-exiting) CLI
+  process, registering a dead client. They are internal plumbing — `use` /
+  `unuse` and the Neovim plugin already always pass `--pid` — so this only
+  affects anyone invoking the raw admin commands without it.
+- **`admin start` / `use` no longer leave an orphaned watcher/server on a
+  start-confirmation timeout.** The wait is now gated on watcher *liveness*: it
+  fails fast when the watcher dies without publishing, tolerates a slow-but-alive
+  watcher up to a generous cap (so slow lockfile I/O or load doesn't kill a
+  healthy start), and on genuine failure tears the whole tree down before
+  returning — so a retry can't accidentally start a second instance.
+- **Teardown model reworked so the watcher is the single owner of the server
+  lifecycle.** It now reaps the server (`waitpid`) so no zombie lingers, polls
+  every 500 ms (was 5 s), and deletes lockfiles pid-guarded so a stale watcher
+  can't clobber a restarted instance reusing the same name.
+- **`admin stop` / `stop --force` now signal and then wait for full teardown**
+  (server reaped, lockfiles removed, watcher exited) before returning, instead
+  of deleting lockfiles themselves. `stop` errors without escalating; `--force`
+  escalates to SIGKILL and, on failure, reports exactly what survived.
+- **`admin kill` is now the watcher-independent "floor"**: it SIGKILLs the
+  watcher first, then the server's process group, then cleans up itself. Works
+  even when the watcher is wedged.
+- `admin doctor` now defers to a live watcher instead of racing it, and only
+  removes a lockfile when the server is dead **and** no watcher is alive.
+- **`clients.json` is now kept for the whole life of the server** instead of
+  being deleted when the refcount reaches zero. Grace is now signalled by
+  `refcount == 0` (the file stays with an empty client map), not by the file's
+  absence. This keeps the lockfile inode stable so its `flock` is a real mutex.
+  `refcount` is always derived from the number of distinct client PIDs.
 - Documentation is now published to a docs site via a reusable GitHub Actions workflow
 - CI tests now use a proper vusted setup
 - GitHub Actions workflows can be triggered manually
@@ -19,6 +53,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
+- **A corrupt or mid-teardown-deleted lockfile no longer turns every command
+  into a hard error.** `get_server_state` now reports `stopped` for an
+  unreadable/empty server lock (a normal teardown race or corruption) instead of
+  propagating an error, and `admin doctor` cleans such locks instead of aborting
+  the whole run on the first bad one.
+- **Refcount no longer inflates when the same client PID attaches twice.** A
+  repeat `incref`/`use` from one PID used to bump the count while the client map
+  (keyed by PID) stayed at one entry, so a single `unuse` could then drop the
+  server while it was still in use. The refcount is now derived from the client
+  set, making repeat attaches idempotent.
+- **A recycled PID can no longer be mistaken for the server or signalled by
+  mistake.** The server's process start stamp is recorded and verified, so if the
+  OS reuses the old server's PID for an unrelated process, `stop`/`kill`/state
+  checks treat the server as gone instead of acting on the stranger. The same
+  guard now also covers the watcher PID.
+- **`parse_duration` rejects overflowing values** (e.g. an absurd
+  `--grace-period`/`--timeout`) instead of panicking (debug) or silently
+  wrapping to a tiny duration (release).
+- **`admin doctor` now also discovers orphaned `clients.json` files** (with no
+  matching `server.json`) and cleans them, instead of only scanning for servers.
+- **The invocation log is written atomically** (whole line, under a lock), so
+  concurrent writers can't interleave partial lines into the audit log.
+- **Fixed a lock-correctness bug from deleting and recreating `clients.json`.**
+  Because `flock` binds to the inode, deleting the file at refcount 0 and
+  recreating it on the next attach let two processes lock different inodes for
+  the same path, corrupting the refcount and occasionally dropping a just-attached
+  client into grace. The file is no longer deleted mid-life (see Changed).
+- **`stop --force` no longer falsely reports "Failed to kill server process"**
+  when the kill in fact succeeded: a zombie (post-kill, awaiting reap) is no
+  longer treated as a live process. This also unwedges the watcher, which
+  previously could loop forever treating the zombie as alive.
+- A fast `stop`/`start` cycle with the same name no longer risks the old watcher
+  deleting the new instance's lockfiles (the stale-watcher restart race).
+- Integration tests are now isolated to a dedicated `SHAREDSERVER_LOCKDIR` so
+  they no longer touch the user's real lockdir or assert against the wrong path.
 - Fixed the CI test workflow
 - Corrected changelog repository links to point at the actual GitHub repository
 
