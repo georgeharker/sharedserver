@@ -114,8 +114,12 @@ pub fn is_process_alive(pid: i32) -> bool {
 /// detects PID reuse. The value is only comparable to other stamps from the
 /// same platform; never interpret it as a wall-clock time.
 ///
-/// Linux: `starttime` (field 22 of `/proc/<pid>/stat`, clock ticks since boot).
-/// macOS: process start time in seconds (`proc_bsdinfo::pbi_start_tvsec`).
+/// Linux: `starttime` (field 22 of `/proc/<pid>/stat`, clock ticks since boot —
+/// typically 100 Hz, so ~10 ms resolution).
+/// macOS: process start time in microseconds, `pbi_start_tvsec * 1_000_000 +
+/// pbi_start_tvusec` from `proc_bsdinfo`. Folding in the µsec field keeps the
+/// stamp from collapsing to whole seconds, so two processes that reuse a PID
+/// within the same second still get distinct stamps.
 /// Other platforms: always `None` (reuse can't be detected there).
 #[cfg(target_os = "linux")]
 pub fn process_start_stamp(pid: i32) -> Option<u64> {
@@ -139,7 +143,11 @@ pub fn process_start_stamp(pid: i32) -> Option<u64> {
         if result <= 0 {
             None
         } else {
-            Some(info.pbi_start_tvsec)
+            // Combine seconds and microseconds into one opaque µsec-resolution
+            // stamp. The value is only ever equality-compared (PID-reuse guard),
+            // never read as wall-clock, so this re-encoding is safe and gives a
+            // finer-grained identity than whole seconds alone.
+            Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
         }
     }
 }

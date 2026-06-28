@@ -135,9 +135,14 @@ fn execute_internal(
             // CRITICAL: Redirect watcher's stdout/stderr immediately to prevent blocking
             // on inherited pipes from parent process when writing errors/logs
             use std::fs::OpenOptions;
-            use std::os::unix::io::AsRawFd;
+            use std::os::unix::io::IntoRawFd;
             if let Ok(devnull) = OpenOptions::new().write(true).open("/dev/null") {
-                let fd = devnull.as_raw_fd();
+                // into_raw_fd() takes ownership of the descriptor away from the
+                // File so it isn't *also* closed when `devnull` drops. The
+                // explicit libc::close below is then the single, correct close;
+                // closing it twice aborts the process under std's debug-mode
+                // I/O-safety guard (release silently tolerates the double close).
+                let fd = devnull.into_raw_fd();
                 unsafe {
                     libc::dup2(fd, 1); // stdout
                     libc::dup2(fd, 2); // stderr
@@ -196,11 +201,14 @@ fn execute_internal(
                     // Redirect stdin to /dev/null (required for servers like workspace-mcp)
                     // stdout/stderr go to log_file if provided, otherwise /dev/null
                     use std::fs::OpenOptions;
-                    use std::os::unix::io::AsRawFd;
+                    use std::os::unix::io::IntoRawFd;
 
-                    // stdin always goes to /dev/null
+                    // stdin always goes to /dev/null. into_raw_fd() transfers
+                    // ownership out of the File so the explicit libc::close is the
+                    // only close — a double close aborts under std's debug-mode
+                    // I/O-safety guard (release tolerates it).
                     if let Ok(devnull) = OpenOptions::new().read(true).open("/dev/null") {
-                        let fd = devnull.as_raw_fd();
+                        let fd = devnull.into_raw_fd();
                         unsafe {
                             let flags = libc::fcntl(fd, libc::F_GETFD);
                             libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
@@ -215,7 +223,7 @@ fn execute_internal(
                         if let Ok(logfile) =
                             OpenOptions::new().create(true).append(true).open(log_path)
                         {
-                            let fd = logfile.as_raw_fd();
+                            let fd = logfile.into_raw_fd();
                             unsafe {
                                 let flags = libc::fcntl(fd, libc::F_GETFD);
                                 libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
@@ -227,7 +235,7 @@ fn execute_internal(
                     } else {
                         // Redirect to /dev/null
                         if let Ok(devnull) = OpenOptions::new().write(true).open("/dev/null") {
-                            let fd = devnull.as_raw_fd();
+                            let fd = devnull.into_raw_fd();
                             unsafe {
                                 let flags = libc::fcntl(fd, libc::F_GETFD);
                                 libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);

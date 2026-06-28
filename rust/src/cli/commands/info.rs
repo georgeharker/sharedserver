@@ -63,6 +63,8 @@ pub fn execute(name: &str, json_output: bool) -> Result<()> {
             "grace_period": server_lock.grace_period,
             "watcher_pid": server_lock.watcher_pid,
             "started_at": server_lock.started_at.timestamp(),
+            "start_time": server_lock.start_time,
+            "watcher_start_time": server_lock.watcher_start_time,
             "refcount": refcount,
             "clients": clients_info,
         });

@@ -20,8 +20,14 @@ fn test_lockdir() -> PathBuf {
 fn get_binary_path() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("target");
-    // Always use release build for integration tests
-    path.push("release");
+    // Match the profile this test binary was built with, so the daemon we exec
+    // is always the one `cargo test` / `cargo test --release` just rebuilt —
+    // never a stale binary left over from the other profile.
+    path.push(if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    });
     path.push("sharedserver");
     path
 }
