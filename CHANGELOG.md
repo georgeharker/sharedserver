@@ -8,11 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.5.0] - 2026-06-27
+
+### Added
 - `admin stop` now takes `--timeout <DUR>` (default `10s`) bounding how long it
   waits for teardown to converge.
 - New process liveness primitive `process_liveness()` returning `Alive` /
   `Zombie` / `Gone`, and a corresponding **`defunct`** server state (server
   process died but lockfiles not yet removed). `check` now exits `3` for defunct.
+- `info --json` now includes the `start_time` and `watcher_start_time` process
+  start stamps used by the PID-reuse guard.
 
 ### Changed
 - **`admin incref` / `admin decref` now require `--pid`.** These low-level
@@ -86,8 +102,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previously could loop forever treating the zombie as alive.
 - A fast `stop`/`start` cycle with the same name no longer risks the old watcher
   deleting the new instance's lockfiles (the stale-watcher restart race).
+- **The daemon no longer aborts on startup under a debug build.** The fd-redirect
+  setup closed a borrowed descriptor that the owning `File` then closed again on
+  drop; this double-close is a no-op in release but trips std's debug-mode I/O
+  safety guard, killing the watcher before it published its lock. The descriptor
+  is now owned via `into_raw_fd()` so it is closed exactly once.
+- **macOS process start stamps are now microsecond-resolution** (folding in
+  `pbi_start_tvusec` alongside `pbi_start_tvsec`), so two processes that reuse a
+  PID within the same second still get distinct stamps for the reuse guard.
 - Integration tests are now isolated to a dedicated `SHAREDSERVER_LOCKDIR` so
   they no longer touch the user's real lockdir or assert against the wrong path.
+- Integration tests select the daemon binary by build profile, so both
+  `cargo test` and `cargo test --release` exercise the binary they just built
+  rather than a stale one from the other profile.
 - Fixed the CI test workflow
 - Corrected changelog repository links to point at the actual GitHub repository
 
@@ -275,7 +302,8 @@ For most users, prefer the new high-level commands:
 - Use `serverctl use <name> -- <command>` to start/attach
 - Use `serverctl unuse <name>` to detach
 
-[Unreleased]: https://github.com/georgeharker/sharedserver/compare/v0.4.10...HEAD
+[Unreleased]: https://github.com/georgeharker/sharedserver/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/georgeharker/sharedserver/compare/v0.4.10...v0.5.0
 [0.4.10]: https://github.com/georgeharker/sharedserver/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/georgeharker/sharedserver/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/georgeharker/sharedserver/compare/v0.4.7...v0.4.8
