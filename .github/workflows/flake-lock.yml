@@ -1,0 +1,42 @@
+name: flake-lock
+
+# Keeps flake.lock in sync with flake.nix's inputs without needing nix locally.
+# Runs `nix flake lock` (adds missing inputs, preserves existing pins — it does
+# NOT bump locked revs) and commits the result back when flake.nix changes.
+# Manual runs also work once this is on the default branch.
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "flake.nix"
+      - ".github/workflows/flake-lock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flake-lock-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: nix flake lock
+        run: nix flake lock
+      - name: Commit updated flake.lock
+        run: |
+          if git diff --quiet -- flake.lock; then
+            echo "flake.lock already in sync."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add flake.lock
+            git commit -m "chore(flake): sync flake.lock with flake.nix inputs"
+            git push
+          fi

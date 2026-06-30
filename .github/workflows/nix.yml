@@ -1,0 +1,81 @@
+name: nix
+
+# Build and check the Nix flake (flake.nix): builds the `sharedserver` binary
+# (crane) and the `sharedserver-nvim` plugin, runs `nix flake check` (which runs
+# the treefmt formatting check), and smoke-tests the binary — across Linux +
+# macOS. Inert (skips) when no flake.nix is present.
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "rust/**"
+      - "lua/**"
+      - ".stylua.toml"
+      - ".github/workflows/nix.yml"
+  pull_request:
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "rust/**"
+      - "lua/**"
+      - ".stylua.toml"
+      - ".github/workflows/nix.yml"
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # id-token: write lets flakehub-cache-action authenticate to FlakeHub via OIDC.
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect flake
+        id: flake
+        shell: bash
+        run: |
+          if [ -f flake.nix ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No flake.nix at this ref — skipping Nix build."
+          fi
+
+      - name: Install Nix
+        if: steps.flake.outputs.present == 'true'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Enable FlakeHub Cache
+        if: steps.flake.outputs.present == 'true'
+        uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: build sharedserver + plugin
+        if: steps.flake.outputs.present == 'true'
+        run: |
+          nix build --print-build-logs --no-link \
+            .#sharedserver \
+            .#sharedserver-nvim
+
+      - name: flake check
+        if: steps.flake.outputs.present == 'true'
+        run: nix flake check --print-build-logs
+
+      - name: smoke-test sharedserver --help
+        if: steps.flake.outputs.present == 'true'
+        run: |
+          out=$(nix run .#sharedserver -- --help 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -qiE "usage|sharedserver" \
+            || { echo "::error::sharedserver --help produced no recognizable output"; exit 1; }

@@ -1,0 +1,35 @@
+name: rust
+
+# Rust formatting + lint on PRs/pushes that touch the crate. `cargo test` is not
+# duplicated here — the flake build (nix.yml) runs the test suite via crane.
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust.yml"
+
+defaults:
+  run:
+    working-directory: rust
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format (rustfmt)
+        run: cargo fmt --check
+
+      # Advisory for now — surfaces clippy lints without failing the build.
+      # Flip to `-- -D warnings` once the existing lints are addressed.
+      - name: Lint (clippy)
+        run: cargo clippy --all-targets
