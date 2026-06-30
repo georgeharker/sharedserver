@@ -33,3 +33,8 @@ jobs:
       # Flip to `-- -D warnings` once the existing lints are addressed.
       - name: Lint (clippy)
         run: cargo clippy --all-targets
+
+      # Full suite incl. the daemon-spawning integration tests, which the Nix
+      # Linux build can't run (sandboxed). This runner is unsandboxed.
+      - name: Tests (cargo test)
+        run: cargo test

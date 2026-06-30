@@ -68,6 +68,13 @@
             preCheck = ''
               export SHAREDSERVER_LOCKDIR="$TMPDIR/sharedserver-tests"
             '';
+            # The integration tests (rust/tests/) spawn real daemons (double-fork
+            # watcher + server + lockfile handshake). That works on Darwin (Nix's
+            # sandbox is off there) but not inside the Linux build sandbox, where
+            # the daemon never becomes ready and `start` times out. Run only the
+            # unit tests on Linux; the integration suite still runs in the Darwin
+            # build and in the `rust` CI workflow (a normal, unsandboxed runner).
+            cargoTestExtraArgs = lib.optionalString pkgs.stdenv.isLinux "--lib --bins";
           };
           sharedserver-nvim = pkgs.vimUtils.buildVimPlugin {
             pname = "sharedserver-nvim";
