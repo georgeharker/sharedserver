@@ -27,11 +27,11 @@ M._config = {
     sharedserver_cmd = "",
     commands = true,
     notify = {
-        on_start = true,     -- Notify when starting a new server
-        on_attach = true,   -- Notify when attaching to existing server
-        on_stop = false,     -- Notify when stopping a server
-        on_error = true,     -- Always notify on errors
-    }
+        on_start = true, -- Notify when starting a new server
+        on_attach = true, -- Notify when attaching to existing server
+        on_stop = false, -- Notify when stopping a server
+        on_error = true, -- Always notify on errors
+    },
 }
 -- Internal notification wrapper
 M._notify = function(message, level, event_type)
@@ -66,9 +66,12 @@ M._find_sharedserver = function()
         if vim.fn.executable(M._config.sharedserver_cmd) == 1 then
             return M._config.sharedserver_cmd
         end
-        vim.notify_once("sharedserver: configured sharedserver_cmd '"
-            .. M._config.sharedserver_cmd .. "' is not executable; falling back to auto-discovery",
-            vim.log.levels.WARN)
+        vim.notify_once(
+            "sharedserver: configured sharedserver_cmd '"
+                .. M._config.sharedserver_cmd
+                .. "' is not executable; falling back to auto-discovery",
+            vim.log.levels.WARN
+        )
     end
 
     -- Honour an explicit env override (parity with the bin/sharedserver wrapper).
@@ -78,9 +81,9 @@ M._find_sharedserver = function()
     end
 
     -- Try relative to plugin directory first (Rust version)
-    local script_path = debug.getinfo(1).source:sub(2)  -- Remove @ prefix
-    local plugin_dir = vim.fn.fnamemodify(script_path, ':h:h:h')
-    local sharedserver = plugin_dir .. '/rust/target/release/sharedserver'
+    local script_path = debug.getinfo(1).source:sub(2) -- Remove @ prefix
+    local plugin_dir = vim.fn.fnamemodify(script_path, ":h:h:h")
+    local sharedserver = plugin_dir .. "/rust/target/release/sharedserver"
 
     if vim.fn.executable(sharedserver) == 1 then
         return sharedserver
@@ -133,7 +136,7 @@ M._call_sharedserver = function(args, opts)
         SHAREDSERVER_DEBUG = opts.debug and "1" or "0",
     })
 
-    local cmd = {sharedserver}
+    local cmd = { sharedserver }
     for _, arg in ipairs(args) do
         table.insert(cmd, arg)
     end
@@ -166,13 +169,13 @@ end
 
 -- Check if server exists using sharedserver
 M._sharedserver_check = function(name)
-    local _, _, exit_code = M._call_sharedserver({"check", name})
+    local _, _, exit_code = M._call_sharedserver({ "check", name })
     return exit_code == 0
 end
 
 -- Get server info using sharedserver
 M._sharedserver_info = function(name)
-    local stdout, stderr, exit_code = M._call_sharedserver({"info", name, "--json"})
+    local stdout, stderr, exit_code = M._call_sharedserver({ "info", name, "--json" })
 
     if exit_code ~= 0 then
         return nil, stderr or "server not found"
@@ -184,7 +187,7 @@ end
 -- Increment refcount using sharedserver
 M._sharedserver_incref = function(name, metadata)
     local pid = vim.fn.getpid()
-    local args = {"admin", "incref", "--pid", tostring(pid), name}
+    local args = { "admin", "incref", "--pid", tostring(pid), name }
     if metadata then
         table.insert(args, 4, "--metadata")
         table.insert(args, 5, metadata)
@@ -201,7 +204,7 @@ end
 -- Decrement refcount using sharedserver
 M._sharedserver_decref = function(name)
     local pid = vim.fn.getpid()
-    local _, stderr, exit_code = M._call_sharedserver({"admin", "decref", "--pid", tostring(pid), name})
+    local _, stderr, exit_code = M._call_sharedserver({ "admin", "decref", "--pid", tostring(pid), name })
 
     if exit_code ~= 0 then
         return false, stderr or "decref failed"
@@ -213,7 +216,7 @@ end
 -- Get all servers known to the sharedserver daemon (including externally-started ones)
 -- Returns a table of name → info (from sharedserver list --json), or {} on error.
 M._get_all_daemon_servers = function()
-    local stdout, stderr, exit_code = M._call_sharedserver({"list", "--json"})
+    local stdout, stderr, exit_code = M._call_sharedserver({ "list", "--json" })
 
     if exit_code ~= 0 or not stdout or vim.trim(stdout) == "" then
         return {}
@@ -236,7 +239,6 @@ end
 -- ============================================================================
 -- End of sharedserver Integration
 -- ============================================================================
-
 
 -- Setup multiple servers at once
 M.setup = function(opts)
@@ -265,7 +267,7 @@ M.setup = function(opts)
     vim.api.nvim_create_autocmd("VimLeave", {
         callback = function()
             M.stop_all()
-        end
+        end,
     })
 
     -- Setup user commands if requested (enabled by default)
@@ -285,14 +287,14 @@ M.register = function(name, opts)
     end
 
     local defaults = {
-        command = nil,  -- required
+        command = nil, -- required
         args = {},
-        working_dir = nil,  -- optional, defaults to cwd
-        lazy = false,  -- if true, only attach if already running, don't start
-        on_start = nil,  -- optional callback(pid)
-        idle_timeout = nil,  -- grace period duration (e.g., "30m", "1h", "2h30m")
-        env = {},  -- optional environment variables (e.g., {PATH="/usr/bin", DEBUG="1"})
-        log_file = nil,  -- optional log file path for server stdout/stderr
+        working_dir = nil, -- optional, defaults to cwd
+        lazy = false, -- if true, only attach if already running, don't start
+        on_start = nil, -- optional callback(pid)
+        idle_timeout = nil, -- grace period duration (e.g., "30m", "1h", "2h30m")
+        env = {}, -- optional environment variables (e.g., {PATH="/usr/bin", DEBUG="1"})
+        log_file = nil, -- optional log file path for server stdout/stderr
     }
 
     opts = vim.tbl_extend("force", defaults, opts)
@@ -315,7 +317,7 @@ M.register = function(name, opts)
                 once = true,
                 callback = function()
                     M.start(name)
-                end
+                end,
             })
         else
             M.start(name)
@@ -331,7 +333,7 @@ M.register = function(name, opts)
                 once = true,
                 callback = function()
                     M.attach_if_running(name)
-                end
+                end,
             })
         end
     end
@@ -339,22 +341,18 @@ end
 
 -- Schedule a health check to verify server is still running after start
 M._schedule_health_check = function(name, delay_ms)
-    delay_ms = delay_ms or 3000  -- Default to 3 seconds
+    delay_ms = delay_ms or 3000 -- Default to 3 seconds
 
     vim.defer_fn(function()
         local server = M._servers[name]
         if not server or not server.attached then
-            return  -- Server was stopped manually, nothing to check
+            return -- Server was stopped manually, nothing to check
         end
 
         local info = M._sharedserver_info(name)
         if not info or info.state == "stopped" then
             -- Server died after starting
-            M._notify(
-                "sharedserver: '" .. name .. "' died unexpectedly after start",
-                vim.log.levels.ERROR,
-                "error"
-            )
+            M._notify("sharedserver: '" .. name .. "' died unexpectedly after start", vim.log.levels.ERROR, "error")
             server.attached = false
         end
     end, delay_ms)
@@ -375,9 +373,17 @@ M.attach_if_running = function(name)
             server.attached = true
             local info = M._sharedserver_info(name)
             local pid = info and info.pid or "unknown"
-            M._notify("sharedserver: attached to existing '" .. name .. "' (pid " .. pid .. ")", vim.log.levels.INFO, "attach")
+            M._notify(
+                "sharedserver: attached to existing '" .. name .. "' (pid " .. pid .. ")",
+                vim.log.levels.INFO,
+                "attach"
+            )
         else
-            M._notify("sharedserver: failed to attach to '" .. name .. "': " .. (err or "unknown error"), vim.log.levels.ERROR, "error")
+            M._notify(
+                "sharedserver: failed to attach to '" .. name .. "': " .. (err or "unknown error"),
+                vim.log.levels.ERROR,
+                "error"
+            )
         end
     end
     -- If not running, do nothing (lazy mode)
@@ -427,7 +433,7 @@ M._start_with_sharedserver = function(name, server, config)
 
     -- Build sharedserver use command (combines start-or-attach + incref)
     -- sharedserver use [--grace-period <duration>] [--pid <pid>] [--metadata <text>] <name> [-- <command> [args...]]
-    local sharedserver_args = {"use"}
+    local sharedserver_args = { "use" }
 
     -- Add grace period if configured
     if config.idle_timeout then
@@ -461,14 +467,14 @@ M._start_with_sharedserver = function(name, server, config)
     end
 
     table.insert(sharedserver_args, name)
-    table.insert(sharedserver_args, "--")  -- Separator before command
+    table.insert(sharedserver_args, "--") -- Separator before command
     table.insert(sharedserver_args, config.command)
     for _, arg in ipairs(config.args) do
         table.insert(sharedserver_args, arg)
     end
 
     -- Execute the use command (will either start server or just incref if already running)
-    local stdout, stderr, exit_code = M._call_sharedserver(sharedserver_args, {capture = true})
+    local stdout, stderr, exit_code = M._call_sharedserver(sharedserver_args, { capture = true })
 
     if exit_code == 0 then
         server.attached = true
@@ -478,11 +484,15 @@ M._start_with_sharedserver = function(name, server, config)
         -- Determine if we started a new server or attached to existing
         -- Check for "Started" vs "Attached" in the sharedserver output
         local action = stdout and stdout:match("Started") and "started" or "attached to"
-        M._notify("sharedserver: " .. action .. " '" .. name .. "' (pid " .. server_pid .. ")", vim.log.levels.INFO, action == "started" and "start" or "attach")
+        M._notify(
+            "sharedserver: " .. action .. " '" .. name .. "' (pid " .. server_pid .. ")",
+            vim.log.levels.INFO,
+            action == "started" and "start" or "attach"
+        )
 
         -- Schedule health check if we just started a new server
         if action == "started" then
-            M._schedule_health_check(name, 3000)  -- Check after 3 seconds
+            M._schedule_health_check(name, 3000) -- Check after 3 seconds
         end
 
         if config.on_start and info and info.pid and action == "started" then
@@ -491,7 +501,11 @@ M._start_with_sharedserver = function(name, server, config)
 
         return true
     else
-        M._notify("sharedserver: failed to use '" .. name .. "': " .. (stderr or "unknown error"), vim.log.levels.ERROR, "error")
+        M._notify(
+            "sharedserver: failed to use '" .. name .. "': " .. (stderr or "unknown error"),
+            vim.log.levels.ERROR,
+            "error"
+        )
         return false
     end
 end
@@ -511,7 +525,11 @@ M.stop = function(name)
     -- Use sharedserver to decrement refcount
     local success, err = M._sharedserver_decref(name)
     if not success then
-        M._notify("sharedserver: failed to decref '" .. name .. "': " .. (err or "unknown error"), vim.log.levels.WARN, "error")
+        M._notify(
+            "sharedserver: failed to decref '" .. name .. "': " .. (err or "unknown error"),
+            vim.log.levels.WARN,
+            "error"
+        )
     end
     server.attached = false
     -- Note: decref is called directly here. The watcher will automatically clean up
@@ -537,7 +555,7 @@ end
 M.status = function(name)
     local server = M._servers[name]
     if not server then
-        return {error = "Unknown server '" .. name .. "'"}
+        return { error = "Unknown server '" .. name .. "'" }
     end
 
     -- Use sharedserver to get server info
@@ -551,7 +569,7 @@ M.status = function(name)
             pid = info.pid,
             refcount = info.refcount or 0,
             lazy = server.config.lazy,
-            state = info.state,  -- ACTIVE or GRACE
+            state = info.state, -- ACTIVE or GRACE
             started_at = info.started_at,
         }
     else
@@ -614,9 +632,9 @@ M._create_float = function(lines, title, opts)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
     -- Buffer options
-    vim.bo[buf].buftype = 'nofile'
-    vim.bo[buf].bufhidden = 'wipe'
-    vim.bo[buf].filetype = 'sharedserver'
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].bufhidden = "wipe"
+    vim.bo[buf].filetype = "sharedserver"
     vim.bo[buf].modifiable = false
 
     -- Calculate dimensions
@@ -629,15 +647,15 @@ M._create_float = function(lines, title, opts)
 
     -- Window options
     local win_opts = {
-        relative = 'editor',
+        relative = "editor",
         width = width,
         height = height,
         col = col,
         row = row,
-        style = 'minimal',
-        border = 'rounded',
-        title = title or '',
-        title_pos = 'center',
+        style = "minimal",
+        border = "rounded",
+        title = title or "",
+        title_pos = "center",
     }
 
     -- Create window
@@ -655,8 +673,8 @@ M._create_float = function(lines, title, opts)
         end
     end
 
-    vim.keymap.set('n', 'q', close_win, { buffer = buf, nowait = true })
-    vim.keymap.set('n', '<Esc>', close_win, { buffer = buf, nowait = true })
+    vim.keymap.set("n", "q", close_win, { buffer = buf, nowait = true })
+    vim.keymap.set("n", "<Esc>", close_win, { buffer = buf, nowait = true })
 
     return buf, win
 end
@@ -787,16 +805,19 @@ M._show_status_float = function(server_name)
             end
             local annotation_str = #annotations > 0 and (" " .. table.concat(annotations, " ")) or ""
 
-            table.insert(lines, string.format(
-                "%s %-18s %-12s %-8s %-8s %s%s",
-                icon,
-                name,
-                state,
-                pid_str,
-                refs_str,
-                uptime_str,
-                annotation_str
-            ))
+            table.insert(
+                lines,
+                string.format(
+                    "%s %-18s %-12s %-8s %-8s %s%s",
+                    icon,
+                    name,
+                    state,
+                    pid_str,
+                    refs_str,
+                    uptime_str,
+                    annotation_str
+                )
+            )
         end
 
         table.insert(lines, "")
@@ -825,7 +846,7 @@ M._setup_commands = function()
         complete = function()
             return M.list()
         end,
-        desc = "Start a named server"
+        desc = "Start a named server",
     })
 
     -- :ServerStop <name> - Stop a named server
@@ -842,7 +863,7 @@ M._setup_commands = function()
         complete = function()
             return M.list()
         end,
-        desc = "Stop a named server"
+        desc = "Stop a named server",
     })
 
     -- :ServerRestart <name> - Restart a named server
@@ -859,7 +880,7 @@ M._setup_commands = function()
         complete = function()
             return M.list()
         end,
-        desc = "Restart a named server"
+        desc = "Restart a named server",
     })
 
     -- :ServerStatus [name] - Show server status (all servers if no name given)
@@ -870,7 +891,7 @@ M._setup_commands = function()
         complete = function()
             return M.list()
         end,
-        desc = "Show server status"
+        desc = "Show server status",
     })
 
     -- :ServerList - List all registered servers
@@ -878,7 +899,7 @@ M._setup_commands = function()
         M._show_status_float(nil)
     end, {
         nargs = 0,
-        desc = "List all registered servers"
+        desc = "List all registered servers",
     })
 
     -- :ServerStopAll - Stop all servers
@@ -887,7 +908,7 @@ M._setup_commands = function()
         M._notify("Stopped all servers", vim.log.levels.INFO, "stop")
     end, {
         nargs = 0,
-        desc = "Stop all servers"
+        desc = "Stop all servers",
     })
 end
 

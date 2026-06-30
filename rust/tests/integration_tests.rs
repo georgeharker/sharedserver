@@ -1,10 +1,10 @@
+use serial_test::serial;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use serial_test::serial;
 
 /// Dedicated, isolated lockfile directory for the integration tests.
 ///
@@ -77,22 +77,29 @@ fn run_command_with_timeout(args: &[&str], timeout: Duration) -> std::process::O
     // Use a thread with timeout to wait for the child
     let child_id = child.id();
     let handle = thread::spawn(move || child.wait_with_output());
-    
+
     let start = std::time::Instant::now();
     loop {
         if handle.is_finished() {
-            return handle.join().expect("Thread panicked").expect("Failed to wait for child");
+            return handle
+                .join()
+                .expect("Thread panicked")
+                .expect("Failed to wait for child");
         }
-        
+
         if start.elapsed() > timeout {
             // Timeout - kill the process
             eprintln!("Command timed out after {:?}: {:?}", timeout, args);
             unsafe {
                 libc::kill(child_id as i32, libc::SIGKILL);
             }
-            panic!("Command timed out after {:?}: sharedserver {}", timeout, args.join(" "));
+            panic!(
+                "Command timed out after {:?}: sharedserver {}",
+                timeout,
+                args.join(" ")
+            );
         }
-        
+
         thread::sleep(Duration::from_millis(100));
     }
 }
@@ -212,7 +219,10 @@ fn test_server_lifecycle() {
     let temp_dir = test_lockdir();
     let server_lock = temp_dir.join(format!("{}.server.json", server_name));
     let clients_lock = temp_dir.join(format!("{}.clients.json", server_name));
-    assert!(server_lock.exists(), "Server lock should exist while running");
+    assert!(
+        server_lock.exists(),
+        "Server lock should exist while running"
+    );
 
     // Stop should converge: it waits for full teardown before returning.
     let stop = run_command(&["admin", "stop", server_name, "--timeout", "8s"]);
@@ -341,8 +351,14 @@ fn test_admin_doctor_stale_lockfile() {
     let info_output = run_command(&["info", server_name]);
     if !info_output.status.success() {
         eprintln!("Info command failed");
-        eprintln!("Info stderr: {}", String::from_utf8_lossy(&info_output.stderr));
-        eprintln!("Info stdout: {}", String::from_utf8_lossy(&info_output.stdout));
+        eprintln!(
+            "Info stderr: {}",
+            String::from_utf8_lossy(&info_output.stderr)
+        );
+        eprintln!(
+            "Info stdout: {}",
+            String::from_utf8_lossy(&info_output.stdout)
+        );
     }
     let info_str = String::from_utf8_lossy(&info_output.stdout);
     eprintln!("Info output:\n{}", info_str);
@@ -427,7 +443,10 @@ fn test_admin_kill_command() {
     cleanup_lock_files(server_name);
 
     let long_running_script = get_test_helper_path("long_running.sh");
-    eprintln!("Starting server with script: {}", long_running_script.display());
+    eprintln!(
+        "Starting server with script: {}",
+        long_running_script.display()
+    );
 
     // Start server and register as client (atomic operation) using test process PID
     let test_pid = std::process::id().to_string();
@@ -452,8 +471,14 @@ fn test_admin_kill_command() {
 
     // Check server state
     let info_output = run_command(&["info", server_name]);
-    eprintln!("Server info after start:\n{}", String::from_utf8_lossy(&info_output.stdout));
-    eprintln!("Server info stderr:\n{}", String::from_utf8_lossy(&info_output.stderr));
+    eprintln!(
+        "Server info after start:\n{}",
+        String::from_utf8_lossy(&info_output.stdout)
+    );
+    eprintln!(
+        "Server info stderr:\n{}",
+        String::from_utf8_lossy(&info_output.stderr)
+    );
 
     // Verify server is running
     let list_output = run_command(&["list"]);

@@ -13,8 +13,8 @@ sharedserver.setup({
     servers = {
         opencode = {
             command = "sleep",
-            args = {"3600"},  -- Sleep for 1 hour (simulates a long-running server)
-            idle_timeout = "30s",  -- Grace period of 30 seconds
+            args = { "3600" }, -- Sleep for 1 hour (simulates a long-running server)
+            idle_timeout = "30s", -- Grace period of 30 seconds
         },
     },
     notify = {

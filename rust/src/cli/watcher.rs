@@ -50,7 +50,6 @@ fn wait_for_server_exit(server_pid: i32, timeout: Duration) -> bool {
     }
 }
 
-
 pub fn run_watcher(name: &str, grace_period: &str) -> Result<()> {
     let grace_duration = parse_duration(grace_period)
         .with_context(|| format!("Invalid grace period: {}", grace_period))?;

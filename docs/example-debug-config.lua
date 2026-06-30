@@ -7,7 +7,10 @@ require("sharedserver").setup({
             command = "uvx",
             args = { "workspace-mcp", "--transport", "streamable-http" },
             env = {
-                GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME") .. "/.cache/secrets/" .. vim.fn.expand("$USER") .. ".gcp-oauth.keys.json",
+                GOOGLE_CLIENT_SECRET_PATH = vim.fn.expand("$HOME")
+                    .. "/.cache/secrets/"
+                    .. vim.fn.expand("$USER")
+                    .. ".gcp-oauth.keys.json",
                 WORKSPACE_MCP_PORT = "8002",
             },
             lazy = true,

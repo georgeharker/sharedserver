@@ -30,7 +30,7 @@ local function check_lockdir()
     end
 
     local lockdir = sharedserver._get_lockdir()
-    
+
     -- Check if directory exists or can be created
     local stat = vim.loop.fs_stat(lockdir)
     if stat then
@@ -65,19 +65,21 @@ local function test_lifecycle()
     if not ok then
         return false, "Plugin not loaded"
     end
-    
+
     -- Check if we have any configured servers
     if not sharedserver._servers or vim.tbl_isempty(sharedserver._servers) then
         return nil, "No servers configured (this is OK, just means no setup() called yet)"
     end
-    
+
     -- Just verify the API is available
-    if type(sharedserver.start) ~= "function" or
-       type(sharedserver.stop) ~= "function" or
-       type(sharedserver.status) ~= "function" then
+    if
+        type(sharedserver.start) ~= "function"
+        or type(sharedserver.stop) ~= "function"
+        or type(sharedserver.status) ~= "function"
+    then
         return false, "API functions missing"
     end
-    
+
     return true, "API functions available"
 end
 
@@ -98,14 +100,14 @@ end
 -- Main health check function
 M.check = function()
     local health = vim.health or require("health")
-    
+
     health.start("sharedserver")
-    
+
     -- Check binary
     local binary_ok, binary_info = check_binary()
     if binary_ok then
         health.ok("sharedserver binary found: " .. binary_info)
-        
+
         -- Check version
         local version_ok, version_info = check_version()
         if version_ok then
@@ -119,7 +121,7 @@ M.check = function()
         health.info("Build in the plugin dir: cargo install --path rust --force")
         health.info("(plain `cargo install sharedserver` lands in ~/.cargo/bin, which the plugin does not search)")
     end
-    
+
     -- Check lockdir
     local lockdir_ok, lockdir_info = check_lockdir()
     if lockdir_ok then
@@ -127,7 +129,7 @@ M.check = function()
     else
         health.error("Lock directory issue: " .. lockdir_info)
     end
-    
+
     -- Check API
     local api_ok, api_info = test_lifecycle()
     if api_ok == nil then
@@ -137,7 +139,7 @@ M.check = function()
     else
         health.error("Plugin API issue: " .. api_info)
     end
-    
+
     -- Show current server status
     local ok, sharedserver = pcall(require, "sharedserver")
     if ok and sharedserver._servers and not vim.tbl_isempty(sharedserver._servers) then
@@ -151,7 +153,7 @@ M.check = function()
             end
         end
     end
-    
+
     -- Health check feature
     health.info("Features:")
     health.info("  • Health check notifications (detects server death after 3s)")

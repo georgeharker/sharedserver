@@ -19,7 +19,9 @@ local function with_env(vars, fn)
             vim.fn.setenv(k, v)
         end
     end
-    if not ok then error(err, 2) end
+    if not ok then
+        error(err, 2)
+    end
 end
 
 -- Helper: reset plugin server state between tests

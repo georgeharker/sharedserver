@@ -139,7 +139,13 @@ pub fn process_start_stamp(pid: i32) -> Option<u64> {
     unsafe {
         let mut info: libc::proc_bsdinfo = mem::zeroed();
         let size = mem::size_of::<libc::proc_bsdinfo>() as c_int;
-        let result = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut _, size);
+        let result = proc_pidinfo(
+            pid,
+            PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut _,
+            size,
+        );
         if result <= 0 {
             None
         } else {
@@ -197,7 +203,10 @@ mod tests_linux {
 
     #[test]
     fn malformed_stat_is_gone() {
-        assert_eq!(liveness_from_proc_stat("garbage with no paren"), Liveness::Gone);
+        assert_eq!(
+            liveness_from_proc_stat("garbage with no paren"),
+            Liveness::Gone
+        );
         assert_eq!(liveness_from_proc_stat(""), Liveness::Gone);
     }
 }

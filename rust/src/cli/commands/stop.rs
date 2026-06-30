@@ -133,9 +133,10 @@ fn teardown_failure_diagnostic(name: &str, server: &ServerLock) -> String {
 
     match process_liveness_checked(server.pid, server.start_time) {
         Liveness::Alive => parts.push(format!("server process {} still alive", server.pid)),
-        Liveness::Zombie => {
-            parts.push(format!("server process {} is defunct (awaiting reap)", server.pid))
-        }
+        Liveness::Zombie => parts.push(format!(
+            "server process {} is defunct (awaiting reap)",
+            server.pid
+        )),
         Liveness::Gone => {}
     }
 
