@@ -9,27 +9,9 @@ A shared process manager with reference counting, grace periods, and dead-client
 
 ## Overview
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      sharedserver CLI                         │
-│                                                              │
-│   use/unuse    ┌─────────────┐   start/stop/check            │
-│  ─────────────>│  lockfiles  │<──────────────────             │
-│                │  server.json│                                │
-│   refcount++   │  clients.json│  grace period                 │
-│   refcount--   └─────────────┘  dead-client detection         │
-│                       │                                       │
-│                       ▼                                       │
-│               ┌──────────────┐                                │
-│               │ managed      │                                │
-│               │ server proc  │                                │
-│               └──────────────┘                                │
-└──────────────────────────────────────────────────────────────┘
-        ▲               ▲               ▲
-        │               │               │
-   Neovim #1       Neovim #2       shell script
-   (refcount=1)    (refcount=1)    (refcount=1)
-```
+<p align="center">
+  <img src="docs/architecture.png" alt="sharedserver architecture: multiple clients share a single managed server process, coordinated through lockfiles with reference counting." width="700">
+</p>
 
 One server process, shared across any number of clients. When the last client disconnects, an optional grace period keeps the server warm before shutdown.
 
