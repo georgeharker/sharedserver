@@ -1,0 +1,9 @@
+# Ties this repo to a crib memory project. `crib import` pulls the docs below
+# into the `sharedserver` project (one-way: source wins, ids/history preserved).
+project: sharedserver
+import:
+  - README.md
+  - index.md
+  - EXAMPLES.md
+  - CHANGELOG.md
+  - docs/**/*.md
