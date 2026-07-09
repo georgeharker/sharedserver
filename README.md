@@ -351,12 +351,12 @@ editor sessions want to share one backend process. Two sibling plugins wire this
 CLI into their lifecycles — `sharedserver use` on session start, `sharedserver
 unuse` on session end — so servers come up with the editor and tear down cleanly
 when the last session leaves. Both are vendored here as git submodules under
-[`plugins/`](plugins/):
+`plugins/`:
 
 | Plugin | Host | Submodule | Guide | Published as |
 |--------|------|-----------|-------|--------------|
-| [opencode-sharedserver](https://github.com/georgeharker/opencode-sharedserver) | [OpenCode](https://opencode.ai) | [`plugins/opencode`](plugins/opencode/) | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
-| [claude-sharedserver](https://github.com/georgeharker/claude-sharedserver) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | [`plugins/claude`](plugins/claude/) | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
+| [opencode-sharedserver](https://github.com/georgeharker/opencode-sharedserver) | [OpenCode](https://opencode.ai) | `plugins/opencode` | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
+| [claude-sharedserver](https://github.com/georgeharker/claude-sharedserver) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | `plugins/claude` | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
 
 Their per-server config (`command`, `args`, `env`, `gracePeriod`, `logFile`,
 `metadata`, `lazy`) is intentionally compatible — a `servers` map copies across

@@ -8,9 +8,10 @@ in this repo. It is the Claude Code counterpart to the
 underneath, same reference-counted lifecycle, wired into a different host.
 
 The plugin is vendored into this repository as a git submodule under
-[`plugins/claude/`](../plugins/claude/). Its own
-[README](../plugins/claude/README.md) is the canonical reference for install,
-configuration, and diagnostics — this page is a short orientation.
+`plugins/claude/`. Its own
+[README](https://github.com/georgeharker/claude-sharedserver/blob/main/README.md)
+is the canonical reference for install, configuration, and diagnostics — this
+page is a short orientation.
 
 ## How it works
 
@@ -89,4 +90,4 @@ The submodule README covers the parts not repeated here — the full per-server
 option table, the exact `sharedserver use` / `unuse` invocations, the
 `skipIfEnv` / mcp-companion pairing, and diagnostics.
 
-See [`plugins/claude/README.md`](../plugins/claude/README.md).
+See the [claude-sharedserver README](https://github.com/georgeharker/claude-sharedserver/blob/main/README.md).

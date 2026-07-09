@@ -7,10 +7,11 @@ OpenCode counterpart to the [Neovim plugin](NEOVIM.md): same CLI underneath,
 same reference-counted lifecycle, wired into a different editor.
 
 The plugin is vendored into this repository as a git submodule under
-[`plugins/opencode/`](../plugins/opencode/) and published to npm as
+`plugins/opencode/` and published to npm as
 [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver).
-Its own [README](../plugins/opencode/README.md) is the canonical reference for
-options, diagnostics, and local development — this page is a short orientation.
+Its own [README](https://github.com/georgeharker/opencode-sharedserver/blob/main/README.md)
+is the canonical reference for options, diagnostics, and local development —
+this page is a short orientation.
 
 For the Claude Code equivalent, see the [Claude Code Integration
 guide](CLAUDE_CODE.md).
@@ -96,4 +97,4 @@ The submodule README covers the parts not repeated here:
 - TUI toast behavior and the post-attach health check.
 - Structured-log line shapes for diagnosing startup problems.
 
-See [`plugins/opencode/README.md`](../plugins/opencode/README.md).
+See the [opencode-sharedserver README](https://github.com/georgeharker/opencode-sharedserver/blob/main/README.md).
