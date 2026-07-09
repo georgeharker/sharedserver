@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Vendored the sibling editor plugins as git submodules under `plugins/`:
+  [`opencode-sharedserver`](https://github.com/georgeharker/opencode-sharedserver)
+  at `plugins/opencode` and
+  [`claude-sharedserver`](https://github.com/georgeharker/claude-sharedserver) at
+  `plugins/claude`, with new
+  [OpenCode](docs/OPENCODE.md) and [Claude Code](docs/CLAUDE_CODE.md)
+  integration guides and a README section.
 
 ### Changed
 

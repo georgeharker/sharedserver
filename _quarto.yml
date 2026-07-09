@@ -38,6 +38,8 @@ website:
           - text: "Configuration Examples"
             href: EXAMPLES.md
           - docs/NEOVIM.md
+          - docs/OPENCODE.md
+          - docs/CLAUDE_CODE.md
           - docs/DEBUGGING.md
       - section: "Reference"
         contents:

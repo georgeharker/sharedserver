@@ -356,6 +356,76 @@ ss.list()                          -- registered server names
 
 Verifies binary installation, lock directory access, and server status.
 
+---
+
+## Editor Integrations: OpenCode & Claude Code
+
+OpenCode and Claude Code have the same lifecycle problem Neovim does: several
+editor sessions want to share one backend process. Two sibling plugins wire this
+CLI into their lifecycles — `sharedserver use` on session start, `sharedserver
+unuse` on session end — so servers come up with the editor and tear down cleanly
+when the last session leaves. Both are vendored here as git submodules under
+[`plugins/`](plugins/):
+
+| Plugin | Host | Submodule | Guide | Published as |
+|--------|------|-----------|-------|--------------|
+| [opencode-sharedserver](https://github.com/georgeharker/opencode-sharedserver) | [OpenCode](https://opencode.ai) | [`plugins/opencode`](plugins/opencode/) | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
+| [claude-sharedserver](https://github.com/georgeharker/claude-sharedserver) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | [`plugins/claude`](plugins/claude/) | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
+
+Their per-server config (`command`, `args`, `env`, `gracePeriod`, `logFile`,
+`metadata`, `lazy`) is intentionally compatible — a `servers` map copies across
+OpenCode, Claude Code, and the Neovim config without changes.
+
+```jsonc
+// OpenCode — ~/.config/opencode/config.json
+{
+    "plugin": [
+        ["@geohar/opencode-sharedserver@latest", {
+            "servers": {
+                "chroma": {
+                    "command": "chroma",
+                    "args": ["run", "--path", "{env:HOME}/.local/share/chromadb"],
+                    "gracePeriod": "30m"
+                }
+            }
+        }]
+    ]
+}
+```
+
+```jsonc
+// Claude Code — ~/.config/claude/sharedserver.json
+{
+    "servers": {
+        "chroma": {
+            "command": "chroma",
+            "args": ["run", "--path", "${HOME}/.local/share/chromadb"],
+            "gracePeriod": "30m"
+        }
+    }
+}
+```
+
+See each plugin's guide above for the full option reference, diagnostics, and
+local-development instructions.
+
+### Working with the submodules
+
+Clone with submodules, or initialize after a plain clone:
+
+```bash
+git clone --recurse-submodules https://github.com/georgeharker/sharedserver
+# or, after a plain clone:
+git submodule update --init
+```
+
+To update a pinned plugin to its latest commit:
+
+```bash
+git submodule update --remote plugins/opencode   # or plugins/claude
+git add plugins/opencode && git commit -m "chore: bump opencode-sharedserver submodule"
+```
+
 ## Use Cases
 
 **Development databases** -- ChromaDB, Redis, PostgreSQL shared across editor instances with grace periods for quick restarts.
