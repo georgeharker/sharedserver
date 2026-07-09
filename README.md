@@ -161,17 +161,9 @@ repeat attach from the same PID is idempotent. Override the directory with
 
 ### States
 
-```
-                 use/incref               unuse/decref (refcount=0)
-  STOPPED ─────────────────> ACTIVE ──────────────────────────> GRACE
-     ^                        ^                                   │
-     │                        │          use/incref               │
-     │                        └───────────────────────────────────┤
-     │                                   (grace cancelled)        │
-     │                                                            │
-     └────────────────────────────────────────────────────────────┘
-                              grace expires → SIGTERM → cleanup
-```
+<p align="center">
+  <img src="docs/state-machine.png" alt="Server state machine: STOPPED transitions to ACTIVE on use/incref; ACTIVE to GRACE on unuse/decref when refcount hits 0; GRACE back to ACTIVE on use/incref (grace cancelled) or to STOPPED when grace expires (SIGTERM, cleanup)." width="720">
+</p>
 
 - **ACTIVE**: refcount > 0, server running normally
 - **GRACE**: refcount = 0 (`clients.json` present with an empty client map), server alive but countdown running
@@ -223,15 +215,9 @@ restart with the same name is safe — there is no surviving watcher to race.
 
 ### Lifecycle Timeline
 
-```
-T+0:   First client attaches  → server starts, refcount=1
-T+5:   Second client attaches → refcount=2
-T+10:  First client detaches  → refcount=1
-T+15:  Second client detaches → refcount=0, GRACE starts (e.g., 30m)
-T+20:  Third client attaches  → refcount=1, grace cancelled
-T+25:  Third client detaches  → refcount=0, GRACE starts again
-T+55:  Grace expires           → SIGTERM, cleanup
-```
+<p align="center">
+  <img src="docs/lifecycle-timeline.png" alt="Lifecycle timeline of refcount over time: attach #1 at T+0 (refcount 1), attach #2 at T+5 (2), detach #1 at T+10 (1), detach #2 at T+15 (0, grace starts), attach #3 at T+20 (1, grace cancelled), detach #3 at T+25 (0, grace starts again), grace expires at T+55 (SIGTERM, cleanup)." width="820">
+</p>
 
 ---
 

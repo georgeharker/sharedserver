@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="440" viewBox="0 0 820 440">
+  <defs>
+    <marker id="ssarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 Z" style="fill:#475569;stroke:none"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="820" height="440" style="fill:#f8fafc"/>
+  <text x="410" y="52" style="fill:#0f172a;font-family:Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;text-anchor:middle">Server state machine</text>
+
+  <!-- STOPPED -->
+  <rect x="50" y="100" width="160" height="88" rx="12" style="fill:#f1f5f9;stroke:#94a3b8;stroke-width:2.5"/>
+  <text x="130" y="140" style="fill:#334155;font-family:Helvetica,Arial,sans-serif;font-size:19px;font-weight:700;text-anchor:middle">STOPPED</text>
+  <text x="130" y="164" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">lockfiles removed</text>
+
+  <!-- ACTIVE -->
+  <rect x="330" y="100" width="160" height="88" rx="12" style="fill:#dcfce7;stroke:#22c55e;stroke-width:2.5"/>
+  <text x="410" y="140" style="fill:#14532d;font-family:Helvetica,Arial,sans-serif;font-size:19px;font-weight:700;text-anchor:middle">ACTIVE</text>
+  <text x="410" y="164" style="fill:#15803d;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">refcount &gt; 0</text>
+
+  <!-- GRACE -->
+  <rect x="610" y="100" width="160" height="88" rx="12" style="fill:#fef3c7;stroke:#f59e0b;stroke-width:2.5"/>
+  <text x="690" y="140" style="fill:#78350f;font-family:Helvetica,Arial,sans-serif;font-size:19px;font-weight:700;text-anchor:middle">GRACE</text>
+  <text x="690" y="164" style="fill:#b45309;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">refcount = 0</text>
+
+  <!-- STOPPED -> ACTIVE -->
+  <line x1="212" y1="144" x2="326" y2="144" style="stroke:#475569;stroke-width:2;marker-end:url(#ssarrow)"/>
+  <text x="269" y="130" style="fill:#334155;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">use / incref</text>
+
+  <!-- ACTIVE -> GRACE -->
+  <line x1="492" y1="144" x2="606" y2="144" style="stroke:#475569;stroke-width:2;marker-end:url(#ssarrow)"/>
+  <text x="549" y="122" style="fill:#334155;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">unuse / decref</text>
+  <text x="549" y="137" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:11px;text-anchor:middle">refcount &#8594; 0</text>
+
+  <!-- GRACE -> ACTIVE (grace cancelled) -->
+  <path d="M 682 190 C 612 246, 500 246, 430 192" style="fill:none;stroke:#475569;stroke-width:2;marker-end:url(#ssarrow)"/>
+  <text x="505" y="264" style="fill:#334155;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">use / incref</text>
+  <text x="505" y="280" style="fill:#64748b;font-family:Helvetica,Arial,sans-serif;font-size:12px;font-style:italic;text-anchor:middle">grace cancelled</text>
+
+  <!-- GRACE -> STOPPED (grace expires) -->
+  <path d="M 658 190 C 540 372, 262 372, 144 192" style="fill:none;stroke:#475569;stroke-width:2;marker-end:url(#ssarrow)"/>
+  <text x="392" y="356" style="fill:#334155;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">grace expires &#8594; SIGTERM &#8594; cleanup</text>
+
+  <!-- DEFUNCT footnote -->
+  <text x="410" y="414" style="fill:#94a3b8;font-family:Helvetica,Arial,sans-serif;font-size:12px;text-anchor:middle">DEFUNCT: server process died but lockfiles not yet removed &#8212; a transient state that resolves to STOPPED once the watcher reaps it.</text>
+</svg>

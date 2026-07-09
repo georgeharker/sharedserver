@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="360" viewBox="0 0 780 360">
+  <rect x="0" y="0" width="780" height="360" style="fill:#f8fafc"/>
+
+  <!-- window drop shadow + panel -->
+  <rect x="44" y="46" width="692" height="272" rx="12" style="fill:#0f172a;opacity:0.12"/>
+  <rect x="40" y="40" width="692" height="272" rx="12" style="fill:#1e293b;stroke:#334155;stroke-width:1.5"/>
+
+  <!-- title bar -->
+  <text x="386" y="78" style="fill:#f1f5f9;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;text-anchor:middle">Shared Servers</text>
+  <line x1="60" y1="94" x2="712" y2="94" style="stroke:#334155;stroke-width:1.5"/>
+
+  <!-- column headers -->
+  <g style="font-family:ui-monospace,Menlo,monospace;font-size:13px;fill:#94a3b8;font-weight:700">
+    <text x="86" y="124">NAME</text>
+    <text x="252" y="124">STATUS</text>
+    <text x="392" y="124">PID</text>
+    <text x="474" y="124">REFS</text>
+    <text x="560" y="124">UPTIME</text>
+  </g>
+  <line x1="60" y1="136" x2="712" y2="136" style="stroke:#334155;stroke-width:1;stroke-dasharray:3 3"/>
+
+  <!-- rows -->
+  <g style="font-family:ui-monospace,Menlo,monospace;font-size:13px">
+    <!-- chroma -->
+    <circle cx="72" cy="160" r="5" style="fill:#22c55e"/>
+    <text x="86" y="165" style="fill:#e2e8f0">chroma</text>
+    <text x="252" y="165" style="fill:#cbd5e1">running</text>
+    <text x="392" y="165" style="fill:#cbd5e1">1234</text>
+    <text x="474" y="165" style="fill:#cbd5e1">2</text>
+    <text x="560" y="165" style="fill:#cbd5e1">2h 15m</text>
+
+    <!-- redis -->
+    <circle cx="72" cy="188" r="5" style="fill:#22c55e"/>
+    <text x="86" y="193" style="fill:#e2e8f0">redis</text>
+    <text x="252" y="193" style="fill:#cbd5e1">running</text>
+    <text x="392" y="193" style="fill:#cbd5e1">5678</text>
+    <text x="474" y="193" style="fill:#cbd5e1">1</text>
+    <text x="560" y="193" style="fill:#cbd5e1">45m 32s</text>
+
+    <!-- postgres (running, refcount 0 = grace) -->
+    <circle cx="72" cy="216" r="5" style="fill:#22c55e"/>
+    <text x="86" y="221" style="fill:#e2e8f0">postgres</text>
+    <text x="252" y="221" style="fill:#cbd5e1">running</text>
+    <text x="392" y="221" style="fill:#cbd5e1">9012</text>
+    <text x="474" y="221" style="fill:#fbbf24">0</text>
+    <text x="560" y="221" style="fill:#cbd5e1">3h 22m</text>
+
+    <!-- myserver (stopped, lazy) -->
+    <circle cx="72" cy="244" r="5" style="fill:none;stroke:#64748b;stroke-width:1.5"/>
+    <text x="86" y="249" style="fill:#94a3b8">myserver</text>
+    <text x="252" y="249" style="fill:#94a3b8">stopped</text>
+    <text x="392" y="249" style="fill:#64748b">-</text>
+    <text x="474" y="249" style="fill:#64748b">-</text>
+    <text x="560" y="249" style="fill:#64748b">- [lazy]</text>
+  </g>
+
+  <line x1="60" y1="270" x2="712" y2="270" style="stroke:#334155;stroke-width:1;stroke-dasharray:3 3"/>
+  <text x="86" y="294" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:12px">Press q or &lt;Esc&gt; to close</text>
+
+  <!-- legend under window -->
+  <circle cx="52" cy="336" r="5" style="fill:#22c55e"/>
+  <text x="66" y="340" style="fill:#64748b;font-family:Helvetica,Arial,sans-serif;font-size:12px">running (active or grace)</text>
+  <circle cx="292" cy="336" r="5" style="fill:none;stroke:#64748b;stroke-width:1.5"/>
+  <text x="306" y="340" style="fill:#64748b;font-family:Helvetica,Arial,sans-serif;font-size:12px">stopped</text>
+</svg>

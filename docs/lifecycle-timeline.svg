@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="440" viewBox="0 0 900 440">
+  <defs>
+    <marker id="tlarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 Z" style="fill:#475569;stroke:none"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="440" style="fill:#f8fafc"/>
+  <text x="450" y="46" style="fill:#0f172a;font-family:Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;text-anchor:middle">Lifecycle timeline &#8212; refcount over time</text>
+
+  <!-- grace bands (drawn first, behind) -->
+  <rect x="277.5" y="150" width="62.5" height="180" style="fill:#f59e0b;opacity:0.16"/>
+  <rect x="402.5" y="150" width="375" height="180" style="fill:#f59e0b;opacity:0.16"/>
+
+  <!-- refcount gridlines -->
+  <line x1="70" y1="190" x2="850" y2="190" style="stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:4 4"/>
+  <line x1="70" y1="250" x2="850" y2="250" style="stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:4 4"/>
+  <line x1="70" y1="310" x2="850" y2="310" style="stroke:#94a3b8;stroke-width:1.5"/>
+
+  <!-- y labels -->
+  <text x="56" y="195" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:13px;text-anchor:end">2</text>
+  <text x="56" y="255" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:13px;text-anchor:end">1</text>
+  <text x="56" y="315" style="fill:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:13px;text-anchor:end">0</text>
+  <text x="34" y="250" style="fill:#334155;font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;text-anchor:middle" transform="rotate(-90 34 250)">refcount</text>
+
+  <!-- refcount step line -->
+  <path d="M 90 310 L 90 250 L 152.5 250 L 152.5 190 L 215 190 L 215 250 L 277.5 250 L 277.5 310 L 340 310 L 340 250 L 402.5 250 L 402.5 310 L 777.5 310"
+        style="fill:none;stroke:#2563eb;stroke-width:3;stroke-linejoin:round"/>
+
+  <!-- transition dots -->
+  <g style="fill:#2563eb">
+    <circle cx="90" cy="250" r="4.5"/>
+    <circle cx="152.5" cy="190" r="4.5"/>
+    <circle cx="215" cy="250" r="4.5"/>
+    <circle cx="277.5" cy="310" r="4.5"/>
+    <circle cx="340" cy="250" r="4.5"/>
+    <circle cx="402.5" cy="310" r="4.5"/>
+  </g>
+  <!-- cleanup marker at T+55 -->
+  <line x1="777.5" y1="310" x2="777.5" y2="286" style="stroke:#dc2626;stroke-width:2"/>
+  <circle cx="777.5" cy="310" r="4.5" style="fill:#dc2626"/>
+
+  <!-- x axis ticks + labels -->
+  <g style="fill:#475569;font-family:ui-monospace,Menlo,monospace;font-size:12px;text-anchor:middle">
+    <text x="90" y="350">T+0</text>
+    <text x="152.5" y="350">T+5</text>
+    <text x="215" y="350">T+10</text>
+    <text x="277.5" y="350">T+15</text>
+    <text x="340" y="350">T+20</text>
+    <text x="402.5" y="350">T+25</text>
+    <text x="777.5" y="350">T+55</text>
+  </g>
+
+  <!-- event annotations -->
+  <g style="font-family:ui-monospace,Menlo,monospace;font-size:12px;fill:#334155">
+    <text x="90" y="238" text-anchor="start">attach #1</text>
+    <text x="152.5" y="178" text-anchor="middle">attach #2</text>
+    <text x="215" y="238" text-anchor="middle">detach #1</text>
+    <text x="277.5" y="374" text-anchor="middle">detach #2</text>
+    <text x="277.5" y="388" text-anchor="middle" style="fill:#b45309">&#8594; grace</text>
+    <text x="340" y="238" text-anchor="middle">attach #3</text>
+    <text x="402.5" y="374" text-anchor="middle">detach #3</text>
+    <text x="402.5" y="388" text-anchor="middle" style="fill:#b45309">&#8594; grace</text>
+    <text x="777.5" y="264" text-anchor="middle" style="fill:#dc2626">grace expires</text>
+    <text x="777.5" y="280" text-anchor="middle" style="fill:#dc2626">SIGTERM &#8594; cleanup</text>
+  </g>
+  <text x="340" y="224" style="fill:#15803d;font-family:Helvetica,Arial,sans-serif;font-size:11px;font-style:italic;text-anchor:middle">grace cancelled</text>
+
+  <!-- legend -->
+  <rect x="90" y="406" width="20" height="13" style="fill:#f59e0b;opacity:0.35"/>
+  <text x="118" y="417" style="fill:#64748b;font-family:Helvetica,Arial,sans-serif;font-size:12px;text-anchor:start">grace period &#8212; server stays warm with no clients attached</text>
+</svg>

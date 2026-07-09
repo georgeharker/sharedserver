@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   integration guides and a README section.
 
 ### Changed
+- Replaced the remaining ASCII diagrams with rendered SVG/PNG (editable SVG
+  sources kept in `docs/`): the state machine and lifecycle timeline in the
+  README, and the `:ServerStatus` window mockup in `docs/NEOVIM.md`.
 
 ### Deprecated
 

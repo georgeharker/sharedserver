@@ -111,18 +111,9 @@ See [DEBUGGING.md](./DEBUGGING.md) for comprehensive troubleshooting.
 
 The `:ServerStatus` command opens a floating window showing all registered servers:
 
-```
-╭──────────────────────────── Shared Servers ─────────────────────────────╮
-│ NAME                 STATUS       PID      REFS     UPTIME               │
-│ ────────────────────────────────────────────────────────────────────────│
-│ ● chroma             running      1234     2        2h 15m               │
-│ ● redis              running      5678     1        45m 32s              │
-│ ● postgres           running      9012     0        3h 22m               │
-│ ○ myserver           stopped      -        -        - [lazy]             │
-│                                                                           │
-│ Press q or <Esc> to close                                                │
-╰───────────────────────────────────────────────────────────────────────────╯
-```
+<p align="center">
+  <img src="serverstatus-window.png" alt="The :ServerStatus floating window listing servers in a table with NAME, STATUS, PID, REFS, and UPTIME columns: chroma, redis, and postgres running (green dot), myserver stopped and lazy (open dot)." width="740">
+</p>
 
 Status indicators:
 - `●` Running (active, or in grace period with refcount 0)
