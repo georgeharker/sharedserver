@@ -1,0 +1,293 @@
+// OpenCode plugin: manage shared backend processes via the `sharedserver` CLI.
+// See README.md for installation and configuration.
+
+import { spawnSync } from "node:child_process"
+import { existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import type { Plugin } from "@opencode-ai/plugin"
+
+type ServerSpec = {
+    /** Binary to run (required unless `lazy` is true). */
+    command?: string
+    /** Arguments passed to `command`. */
+    args?: string[]
+    /** Extra environment variables forwarded via `--env KEY=VALUE`. */
+    env?: Record<string, string>
+    /** Grace period for sharedserver, e.g. "30m", "1h", "2h30m". */
+    gracePeriod?: string
+    /** Capture stdout/stderr of the managed server to this path. */
+    logFile?: string
+    /** Optional metadata string forwarded to sharedserver. */
+    metadata?: string
+    /** Only attach if the server is already running; never start it. */
+    lazy?: boolean
+}
+
+type Options = {
+    /** Explicit path to the `sharedserver` binary. */
+    binary?: string
+    /** Override SHAREDSERVER_LOCKDIR for child invocations. */
+    lockdir?: string
+    /** Show TUI toasts for attach success/failure. Defaults to `true`. */
+    notify?: boolean
+    /** Map of sharedserver name -> server config. */
+    servers?: Record<string, ServerSpec>
+}
+
+type LogFn = (level: "info" | "warn" | "error", message: string) => void
+type ToastFn = (variant: "success" | "warning" | "error", message: string) => void
+
+const CANDIDATE_BINARIES = [
+    "sharedserver",
+    join(homedir(), ".cargo", "bin", "sharedserver"),
+    join(homedir(), ".local", "bin", "sharedserver"),
+    "/usr/local/bin/sharedserver",
+    "/opt/homebrew/bin/sharedserver",
+]
+
+function resolveBinary(override: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
+    const envBin = env.SHAREDSERVER_BIN
+    const candidates = [override, envBin, ...CANDIDATE_BINARIES].filter(
+        (v): v is string => typeof v === "string" && v.length > 0,
+    )
+    for (const candidate of candidates) {
+        // Absolute / relative paths: check the file exists.
+        if (candidate.includes("/")) {
+            if (existsSync(candidate)) return candidate
+            continue
+        }
+        // Bare command: probe via the CLI to confirm it's on PATH.
+        const probe = spawnSync(candidate, ["--version"], { stdio: "ignore", env })
+        if (probe.status === 0) return candidate
+    }
+    return undefined
+}
+
+// `sharedserver check` exit codes: 0 = active, 1 = grace, 2 = stopped.
+type PreState = "active" | "grace" | "stopped" | "unknown"
+
+function preCheck(binary: string, name: string, env: NodeJS.ProcessEnv): PreState {
+    const result = spawnSync(binary, ["check", name], { stdio: "ignore", env })
+    switch (result.status) {
+        case 0:
+            return "active"
+        case 1:
+            return "grace"
+        case 2:
+            return "stopped"
+        default:
+            return "unknown"
+    }
+}
+
+type ServerInfo = { pid?: number; state?: string }
+
+function readServerInfo(binary: string, name: string, env: NodeJS.ProcessEnv): ServerInfo | undefined {
+    const result = spawnSync(binary, ["info", name, "--json"], { env })
+    if (result.status !== 0) return undefined
+    try {
+        return JSON.parse(result.stdout.toString()) as ServerInfo
+    } catch {
+        return undefined
+    }
+}
+
+function isPidAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function scheduleHealthCheck(
+    binary: string,
+    name: string,
+    env: NodeJS.ProcessEnv,
+    log: LogFn,
+    toast: ToastFn,
+    delayMs: number,
+) {
+    setTimeout(() => {
+        const info = readServerInfo(binary, name, env)
+        if (!info) {
+            const msg = `${name}: health check failed (sharedserver info returned no data)`
+            log("warn", msg)
+            toast("warning", msg)
+            return
+        }
+        if (info.state && info.state !== "active") {
+            const msg = `${name}: server is not active after start (state: ${info.state})`
+            log("error", msg)
+            toast("error", msg)
+            return
+        }
+        if (info.pid && !isPidAlive(info.pid)) {
+            const msg = `${name}: server PID ${info.pid} died shortly after start`
+            log("error", msg)
+            toast("error", msg)
+            return
+        }
+        log("info", `${name}: health check passed (pid=${info.pid}, state=${info.state})`)
+    }, delayMs).unref()
+}
+
+function buildUseArgs(name: string, spec: ServerSpec, pid: number): string[] {
+    const args = ["use", name, "--pid", String(pid)]
+    if (spec.gracePeriod) args.push("--grace-period", spec.gracePeriod)
+    if (spec.metadata) args.push("--metadata", spec.metadata)
+    if (spec.logFile) args.push("--log-file", spec.logFile)
+    for (const [k, v] of Object.entries(spec.env ?? {})) {
+        args.push("--env", `${k}=${v}`)
+    }
+    if (!spec.lazy && spec.command) {
+        args.push("--", spec.command, ...(spec.args ?? []))
+    }
+    return args
+}
+
+type Attached = { binary: string; name: string; env: NodeJS.ProcessEnv }
+
+const attached: Attached[] = []
+let cleanupInstalled = false
+
+function installCleanup() {
+    if (cleanupInstalled) return
+    cleanupInstalled = true
+
+    const drain = () => {
+        while (attached.length) {
+            const s = attached.pop()!
+            // Synchronous spawn so this works from `exit` handlers too.
+            spawnSync(s.binary, ["unuse", s.name, "--pid", String(process.pid)], {
+                stdio: "ignore",
+                env: s.env,
+            })
+        }
+    }
+
+    process.on("exit", drain)
+
+    const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"]
+    for (const sig of signals) {
+        process.on(sig, () => {
+            drain()
+            // Re-raise so the original signal semantics apply (e.g. exit code).
+            process.kill(process.pid, sig)
+        })
+    }
+}
+
+const SharedServerPlugin: Plugin = async ({ client }, options) => {
+    const opts = (options ?? {}) as Options
+    const servers = opts.servers ?? {}
+    const notifyEnabled = opts.notify !== false
+
+    const log: LogFn = (level, message) => {
+        client.app
+            .log({ body: { service: "sharedserver", level, message } })
+            .catch(() => {})
+    }
+
+    const toast: ToastFn = (variant, message) => {
+        if (!notifyEnabled) return
+        // The plugin runs inside InstanceBootstrap, before the bus subscribers
+        // that forward events to the TUI are wired up. Defer the toast so it
+        // arrives after the TUI has subscribed. Best-effort: no TUI attached
+        // (headless CLI) → request just no-ops.
+        setTimeout(() => {
+            log("info", `posting toast (${variant}): ${message}`)
+            client.tui
+                .showToast({ body: { title: "sharedserver", message, variant } })
+                .then(
+                    () => log("info", `toast posted (${variant}): ${message}`),
+                    (err: unknown) =>
+                        log(
+                            "warn",
+                            `toast post failed: ${err instanceof Error ? err.message : String(err)}`,
+                        ),
+                )
+        }, 1500).unref()
+    }
+
+    if (Object.keys(servers).length === 0) {
+        log("warn", "no servers configured; plugin is inert")
+        return {}
+    }
+
+    log(
+        "info",
+        `loaded options: binary=${opts.binary ?? "<auto>"} lockdir=${opts.lockdir ?? "<unset>"} ` +
+            `servers=${JSON.stringify(servers)}`,
+    )
+
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    if (opts.lockdir) env.SHAREDSERVER_LOCKDIR = opts.lockdir
+
+    const binary = resolveBinary(opts.binary, env)
+    if (!binary) {
+        const msg = "sharedserver binary not found; set `binary` option or install it on PATH"
+        log("error", msg)
+        toast("error", msg)
+        return {}
+    }
+
+    installCleanup()
+
+    const started: string[] = []
+    const reattached: string[] = []
+    for (const [name, spec] of Object.entries(servers)) {
+        if (!spec.command && !spec.lazy) {
+            const keys = typeof spec === "object" && spec !== null ? Object.keys(spec) : []
+            const msg =
+                `server "${name}" has no \`command\` and is not lazy; skipping. ` +
+                `Received keys: [${keys.join(", ")}]. ` +
+                `Spec must be an object like { "command": "<bin>", "args": [...] }.`
+            log("error", msg)
+            toast("error", msg)
+            continue
+        }
+
+        const pre = preCheck(binary, name, env)
+        const args = buildUseArgs(name, spec, process.pid)
+        const result = spawnSync(binary, args, { stdio: "pipe", env })
+
+        if (result.error) {
+            const msg = `${name}: failed to spawn sharedserver (${result.error.message})`
+            log("error", msg)
+            toast("error", msg)
+            continue
+        }
+        if (result.status !== 0) {
+            const stderr = result.stderr?.toString().trim()
+            const msg = `${name}: sharedserver use exited ${result.status}${stderr ? ` (${stderr})` : ""}`
+            log("error", msg)
+            toast("error", msg)
+            continue
+        }
+
+        attached.push({ binary, name, env })
+        if (pre === "stopped" || pre === "unknown") {
+            started.push(name)
+            log("info", `started sharedserver "${name}"`)
+        } else {
+            reattached.push(name)
+            log("info", `attached to running sharedserver "${name}" (was ${pre})`)
+        }
+        // Verify the wrapped binary is still alive 2.5s later. Catches the
+        // case where `sharedserver use` reports success but the underlying
+        // process crashes a moment later.
+        scheduleHealthCheck(binary, name, env, log, toast, 2500)
+    }
+
+    const parts: string[] = []
+    if (started.length) parts.push(`started ${started.join(", ")}`)
+    if (reattached.length) parts.push(`attached ${reattached.join(", ")}`)
+    if (parts.length) toast("success", parts.join("; "))
+
+    return {}
+}
+
+export default SharedServerPlugin
