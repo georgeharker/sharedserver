@@ -1,0 +1,55 @@
+name: Release (opencode-sharedserver)
+
+# Publishes the @geohar/opencode-sharedserver npm plugin. Its version is INDEPENDENT
+# of the sharedserver rust crate, so it uses its OWN scoped tag rather than the
+# crate's `v*`:
+#
+#   git tag opencode-sharedserver-v0.1.5 && git push origin opencode-sharedserver-v0.1.5
+#
+# Mirrors the repo's other release workflows: tag-triggered, trusted publishing
+# (OIDC, no secrets), an environment gate. npm equivalent of PyPI/crate Trusted
+# Publishing:
+#
+#   One-time setup at https://www.npmjs.com/ → the package → Settings → Trusted
+#   Publisher, with:
+#       repository:   georgeharker/sharedserver
+#       workflow:     release-opencode-plugin.yml
+#       environment:  npm
+#   Then create a GitHub environment named "npm" (repo Settings → Environments).
+#
+# No NPM_TOKEN needed once the trusted publisher is configured.
+
+on:
+  push:
+    tags: ["opencode-sharedserver-v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write          # OIDC: trusted publishing + provenance
+      contents: read
+    defaults:
+      run:
+        working-directory: plugins/opencode-sharedserver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm (OIDC trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
+      - name: Verify tag matches package version
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#opencode-sharedserver-v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag …-v$tag does not match plugin version $pkg — bump plugins/opencode-sharedserver/package.json"
+            exit 1
+          fi
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Publish to npm (trusted publishing + provenance)
+        run: npm publish --provenance --access public
