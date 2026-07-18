@@ -42,10 +42,6 @@ jobs:
           # which shadows OIDC trusted publishing and makes `npm publish` 404.
       - name: Upgrade npm (OIDC trusted publishing needs >= 11.5.1)
         run: npm install -g npm@latest
-      - name: Probe versions + OIDC env
-        run: |
-          echo "node=$(node -v) npm=$(npm -v)"
-          echo "id-token URL present: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}${ACTIONS_ID_TOKEN_REQUEST_URL:-NO}"
       - name: Verify tag matches package version
         run: |
           pkg="$(node -p "require('./package.json').version")"
