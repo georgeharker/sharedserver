@@ -19,13 +19,6 @@ project:
 # `from: gfm` breaks Quarto's navigation divs.
 from: markdown+gfm_auto_identifiers
 
-# Drop shields.io badges before rendering. They belong on the GitHub README, not
-# the published site, and `embed-resources: true` would otherwise fetch them at
-# render time — a shields.io 403 becomes a [WARNING], which the docs workflow
-# treats as fatal. Filtering here keeps README.md as plain markdown for GitHub.
-filters:
-  - filters/strip-badges.lua
-
 website:
   title: "sharedserver"
   search: true
