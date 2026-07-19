@@ -2,9 +2,9 @@
 // See README.md for installation and configuration.
 
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve as resolvePath } from "node:path"
 import type { Plugin } from "@opencode-ai/plugin"
 
 type ServerSpec = {
@@ -22,6 +22,10 @@ type ServerSpec = {
     metadata?: string
     /** Only attach if the server is already running; never start it. */
     lazy?: boolean
+    /** Name of an env var; when it is set (non-empty) this server is skipped
+     *  entirely — neither started nor attached. Use it when another host has
+     *  already launched the process for this session. */
+    skipIfEnv?: string
 }
 
 type Options = {
@@ -31,8 +35,11 @@ type Options = {
     lockdir?: string
     /** Show TUI toasts for attach success/failure. Defaults to `true`. */
     notify?: boolean
-    /** Map of sharedserver name -> server config. */
+    /** Map of sharedserver name -> server config. Takes precedence over any
+     *  config file; use it to keep everything inline in opencode.json. */
     servers?: Record<string, ServerSpec>
+    /** Explicit path to a servers.json. Overrides the discovery chain. */
+    config?: string
 }
 
 type LogFn = (level: "info" | "warn" | "error", message: string) => void
@@ -180,9 +187,75 @@ function installCleanup() {
     }
 }
 
+// ── shared servers.json discovery (parity with the Claude Code plugin) ──────
+//
+// Both plugins read the same file so one config drives every client. The chain
+// mirrors hooks/use-servers.sh exactly — explicit override, then a per-project
+// config walked UP from the project dir, then the global one. First hit wins;
+// a per-project file REPLACES the global rather than merging with it.
+
+const PROJECT_CONFIG_NAMES = [".sharedserver.json", join(".sharedserver", "servers.json")]
+
+function resolveConfigPath(
+    opts: Options,
+    env: NodeJS.ProcessEnv,
+    cwd: string,
+): string | undefined {
+    const explicit = opts.config ?? env.SHAREDSERVER_CONFIG
+    if (explicit && existsSync(explicit)) return explicit
+
+    let dir = resolvePath(cwd)
+    for (;;) {
+        for (const name of PROJECT_CONFIG_NAMES) {
+            const candidate = join(dir, name)
+            if (existsSync(candidate)) return candidate
+        }
+        const parent = dirname(dir)
+        if (parent === dir) break
+        dir = parent
+    }
+
+    const global = join(homedir(), ".config", "sharedserver", "servers.json")
+    return existsSync(global) ? global : undefined
+}
+
+/** Expand ${VAR} references in every string, mirroring the envsubst pass the
+ *  Claude hook runs, so one file behaves identically in both clients. */
+function expandVars<T>(value: T, env: NodeJS.ProcessEnv): T {
+    if (typeof value === "string") {
+        return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, name) =>
+            env[name] !== undefined ? (env[name] as string) : m,
+        ) as unknown as T
+    }
+    if (Array.isArray(value)) return value.map((v) => expandVars(v, env)) as unknown as T
+    if (value && typeof value === "object") {
+        const out: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            out[k] = expandVars(v, env)
+        }
+        return out as unknown as T
+    }
+    return value
+}
+
+function loadServersFromFile(
+    path: string,
+    env: NodeJS.ProcessEnv,
+    log: LogFn,
+): Record<string, ServerSpec> {
+    try {
+        const parsed = JSON.parse(readFileSync(path, "utf8")) as { servers?: Record<string, ServerSpec> }
+        const servers = expandVars(parsed.servers ?? {}, env)
+        log("info", `loaded ${Object.keys(servers).length} server(s) from ${path}`)
+        return servers
+    } catch (err) {
+        log("error", `could not read ${path}: ${err instanceof Error ? err.message : String(err)}`)
+        return {}
+    }
+}
+
 const SharedServerPlugin: Plugin = async ({ client }, options) => {
     const opts = (options ?? {}) as Options
-    const servers = opts.servers ?? {}
     const notifyEnabled = opts.notify !== false
 
     const log: LogFn = (level, message) => {
@@ -212,19 +285,25 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
         }, 1500).unref()
     }
 
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    if (opts.lockdir) env.SHAREDSERVER_LOCKDIR = opts.lockdir
+
+    // Inline `servers` wins; otherwise fall back to the shared servers.json.
+    let servers: Record<string, ServerSpec> = opts.servers ?? {}
     if (Object.keys(servers).length === 0) {
-        log("warn", "no servers configured; plugin is inert")
-        return {}
+        const configPath = resolveConfigPath(opts, env, process.cwd())
+        if (configPath) servers = loadServersFromFile(configPath, env, log)
     }
+
+    // No servers is a normal state, not an error: it just means nothing is
+    // configured. Stay quiet so an unconfigured install starts cleanly.
+    if (Object.keys(servers).length === 0) return {}
 
     log(
         "info",
         `loaded options: binary=${opts.binary ?? "<auto>"} lockdir=${opts.lockdir ?? "<unset>"} ` +
             `servers=${JSON.stringify(servers)}`,
     )
-
-    const env: NodeJS.ProcessEnv = { ...process.env }
-    if (opts.lockdir) env.SHAREDSERVER_LOCKDIR = opts.lockdir
 
     const binary = resolveBinary(opts.binary, env)
     if (!binary) {
@@ -239,6 +318,13 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
     const started: string[] = []
     const reattached: string[] = []
     for (const [name, spec] of Object.entries(servers)) {
+        // skipIfEnv: another host already launched this one for us (e.g.
+        // CodeCompanion injects MCP_COMPANION_COMBINER_URL). Don't start or
+        // attach — matches the Claude hook's behaviour.
+        if (spec.skipIfEnv && (env[spec.skipIfEnv] ?? "") !== "") {
+            log("info", `skipping "${name}": ${spec.skipIfEnv} is set`)
+            continue
+        }
         if (!spec.command && !spec.lazy) {
             const keys = typeof spec === "object" && spec !== null ? Object.keys(spec) : []
             const msg =

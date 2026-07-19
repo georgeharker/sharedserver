@@ -127,7 +127,27 @@ Top-level options:
 | `binary`  | `string`                      | Path to the `sharedserver` executable. Overrides `SHAREDSERVER_BIN`/PATH lookup. |
 | `lockdir` | `string`                      | Forwarded as `SHAREDSERVER_LOCKDIR` to child invocations.                |
 | `notify`  | `boolean`                     | Show TUI toasts for attach success/failure. Defaults to `true`.          |
-| `servers` | `Record<string, ServerSpec>`  | Map of sharedserver name → server config.                                |
+| `servers` | `Record<string, ServerSpec>`  | Map of sharedserver name → server config. Takes precedence over any config file. |
+| `config`  | `string`                      | Explicit path to a `servers.json`. Overrides the discovery chain below.  |
+
+### Where servers come from
+
+Inline `servers` wins. With none set, the plugin reads the **same
+`servers.json` as the Claude Code plugin**, so one file drives every client.
+First hit wins, and a per-project file *replaces* the global rather than
+merging with it:
+
+1. `config` option, or `$SHAREDSERVER_CONFIG`.
+2. **Per-project** — `.sharedserver.json` or `.sharedserver/servers.json`,
+   searched **walking up** from the current directory, so a config at a repo
+   root applies to sessions started anywhere inside it.
+3. `~/.config/sharedserver/servers.json` — global fallback.
+
+`${VAR}` references are expanded throughout the file (matching the envsubst
+pass the Claude hook runs), so `${HOME}` and `${USER}` work in any string value.
+
+No servers configured is a normal state, not an error — the plugin does nothing
+and the session starts clean.
 
 Per-server (`ServerSpec`):
 
@@ -140,6 +160,7 @@ Per-server (`ServerSpec`):
 | `logFile`     | `string`                   | Capture server stdout/stderr to this path.                                               |
 | `metadata`    | `string`                   | Optional metadata string forwarded to sharedserver.                                      |
 | `lazy`        | `boolean`                  | Only attach if the server is already running; never start it.                            |
+| `skipIfEnv`   | `string`                   | Name of an env var; when it is set (non-empty) this server is skipped entirely — neither started nor attached. Use it when another host already launched the process for this session. |
 
 Binary resolution order:
 
