@@ -9,7 +9,7 @@ same reference-counted lifecycle, wired into a different editor.
 The plugin lives in this repository as a plain directory under
 `plugins/opencode/` and is published to npm as
 [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver).
-Its own [README](../plugins/opencode/README.md)
+Its own [README](https://github.com/georgeharker/sharedserver/blob/main/plugins/opencode/README.md)
 is the canonical reference for options, diagnostics, and local development —
 this page is a short orientation.
 
@@ -95,4 +95,4 @@ The plugin README covers the parts not repeated here:
 - TUI toast behavior and the post-attach health check.
 - Structured-log line shapes for diagnosing startup problems.
 
-See the [opencode-sharedserver README](../plugins/opencode/README.md).
+See the [opencode-sharedserver README](https://github.com/georgeharker/sharedserver/blob/main/plugins/opencode/README.md).

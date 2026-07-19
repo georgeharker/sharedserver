@@ -9,7 +9,7 @@ underneath, same reference-counted lifecycle, wired into a different host.
 
 The plugin lives in this repository as a plain directory under
 `plugins/claude/`. Its own
-[README](../plugins/claude/README.md)
+[README](https://github.com/georgeharker/sharedserver/blob/main/plugins/claude/README.md)
 is the canonical reference for install, configuration, and diagnostics — this
 page is a short orientation.
 
@@ -91,4 +91,4 @@ The plugin README covers the parts not repeated here — the full per-server
 option table, the exact `sharedserver use` / `unuse` invocations, the
 `skipIfEnv` / mcp-companion pairing, and diagnostics.
 
-See the [claude-sharedserver README](../plugins/claude/README.md).
+See the [claude-sharedserver README](https://github.com/georgeharker/sharedserver/blob/main/plugins/claude/README.md).
