@@ -1,6 +1,11 @@
 # sharedserver
 
+<!-- GitHub-README only. Hidden from the rendered docs site: embed-resources
+     makes Quarto fetch/inline external images, and a shields.io fetch failure
+     becomes a [WARNING], which the docs workflow treats as fatal. -->
+::: {.content-hidden}
 [![crates][crates]](https://crates.io/crates/sharedserver)
+:::
 
 A shared process manager with reference counting, grace periods, and dead-client detection. Use it standalone from the command line or integrate it with Neovim for automatic server lifecycle management.
 
