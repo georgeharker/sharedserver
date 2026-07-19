@@ -350,13 +350,13 @@ OpenCode and Claude Code have the same lifecycle problem Neovim does: several
 editor sessions want to share one backend process. Two sibling plugins wire this
 CLI into their lifecycles — `sharedserver use` on session start, `sharedserver
 unuse` on session end — so servers come up with the editor and tear down cleanly
-when the last session leaves. Both are vendored here as git submodules under
+when the last session leaves. Both live here as plain in-tree directories under
 `plugins/`:
 
-| Plugin | Host | Submodule | Guide | Published as |
+| Plugin | Host | Directory | Guide | Published as |
 |--------|------|-----------|-------|--------------|
-| [opencode-sharedserver](https://github.com/georgeharker/opencode-sharedserver) | [OpenCode](https://opencode.ai) | `plugins/opencode` | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
-| [claude-sharedserver](https://github.com/georgeharker/claude-sharedserver) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | `plugins/claude` | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
+| [opencode-sharedserver](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode) | [OpenCode](https://opencode.ai) | `plugins/opencode` | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
+| [claude-sharedserver](https://github.com/georgeharker/sharedserver/tree/main/plugins/claude) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | `plugins/claude` | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
 
 Their per-server config (`command`, `args`, `env`, `gracePeriod`, `logFile`,
 `metadata`, `lazy`) is intentionally compatible — a `servers` map copies across
@@ -395,21 +395,20 @@ OpenCode, Claude Code, and the Neovim config without changes.
 See each plugin's guide above for the full option reference, diagnostics, and
 local-development instructions.
 
-### Working with the submodules
+### Working with the plugins
 
-Clone with submodules, or initialize after a plain clone:
+The plugins are plain in-tree directories (`plugins/opencode`, `plugins/claude`),
+so a plain clone already contains their full source — no submodule init needed:
 
 ```bash
-git clone --recurse-submodules https://github.com/georgeharker/sharedserver
-# or, after a plain clone:
-git submodule update --init
+git clone https://github.com/georgeharker/sharedserver
 ```
 
-To update a pinned plugin to its latest commit:
+To change a plugin, edit its files under `plugins/` directly and commit as normal:
 
 ```bash
-git submodule update --remote plugins/opencode   # or plugins/claude
-git add plugins/opencode && git commit -m "chore: bump opencode-sharedserver submodule"
+$EDITOR plugins/opencode/src/index.ts   # or plugins/claude/...
+git add plugins/opencode && git commit -m "feat(opencode): ..."
 ```
 
 ## Use Cases

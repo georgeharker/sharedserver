@@ -8,13 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Vendored the sibling editor plugins as git submodules under `plugins/`:
-  [`opencode-sharedserver`](https://github.com/georgeharker/opencode-sharedserver)
+- Embedded the sibling editor plugins as plain in-tree directories under
+  `plugins/`:
+  [`opencode-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode)
   at `plugins/opencode` and
-  [`claude-sharedserver`](https://github.com/georgeharker/claude-sharedserver) at
-  `plugins/claude`, with new
+  [`claude-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/claude)
+  at `plugins/claude`, with new
   [OpenCode](docs/OPENCODE.md) and [Claude Code](docs/CLAUDE_CODE.md)
-  integration guides and a README section.
+  integration guides and a README section. (Both were briefly vendored as git
+  submodules; they are now ordinary tracked directories.)
 
 ### Changed
 - Replaced the remaining ASCII diagrams with rendered SVG/PNG (editable SVG

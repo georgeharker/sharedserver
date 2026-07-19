@@ -1,15 +1,15 @@
 # OpenCode Integration
 
-[`opencode-sharedserver`](https://github.com/georgeharker/opencode-sharedserver)
+[`opencode-sharedserver`](../plugins/opencode)
 is an [OpenCode](https://opencode.ai) plugin that manages shared backend
 processes through the `sharedserver` CLI documented in this repo. It is the
 OpenCode counterpart to the [Neovim plugin](NEOVIM.md): same CLI underneath,
 same reference-counted lifecycle, wired into a different editor.
 
-The plugin is vendored into this repository as a git submodule under
-`plugins/opencode/` and published to npm as
+The plugin lives in this repository as a plain directory under
+`plugins/opencode/` and is published to npm as
 [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver).
-Its own [README](https://github.com/georgeharker/opencode-sharedserver/blob/main/README.md)
+Its own [README](../plugins/opencode/README.md)
 is the canonical reference for options, diagnostics, and local development —
 this page is a short orientation.
 
@@ -66,30 +66,28 @@ form loads the plugin but passes no options, so no servers are managed.
 > re-resolve dist-tags on every launch, so `@latest` refreshes only
 > occasionally. Plugin developers and anyone who needs a specific build should
 > pin an explicit version (e.g. `@geohar/opencode-sharedserver@0.1.4`). The
-> submodule README has the full details.
+> plugin README has the full details.
 
-## Working with the submodule
+## Working with the plugin source
 
-The submodule pins a specific commit of the OpenCode plugin. To get it:
+The plugin is a plain directory in this repo (`plugins/opencode/`), so a plain
+clone already contains its full source:
 
 ```bash
-# Clone this repo with the submodule in one step
-git clone --recurse-submodules https://github.com/georgeharker/sharedserver
-
-# Or initialize it after a plain clone
-git submodule update --init
+git clone https://github.com/georgeharker/sharedserver
 ```
 
-To bump the pinned commit to the plugin's latest `main`:
+To change the plugin, edit its files under `plugins/opencode/` directly and
+commit as normal:
 
 ```bash
-git submodule update --remote plugins/opencode
-git add plugins/opencode && git commit -m "chore: bump opencode-sharedserver submodule"
+$EDITOR plugins/opencode/src/index.ts
+git add plugins/opencode && git commit -m "feat(opencode): ..."
 ```
 
 ## Reference
 
-The submodule README covers the parts not repeated here:
+The plugin README covers the parts not repeated here:
 
 - Full per-server option table (`command`, `args`, `env`, `gracePeriod`,
   `logFile`, `metadata`, `lazy`) and binary-resolution order.
@@ -97,4 +95,4 @@ The submodule README covers the parts not repeated here:
 - TUI toast behavior and the post-attach health check.
 - Structured-log line shapes for diagnosing startup problems.
 
-See the [opencode-sharedserver README](https://github.com/georgeharker/opencode-sharedserver/blob/main/README.md).
+See the [opencode-sharedserver README](../plugins/opencode/README.md).

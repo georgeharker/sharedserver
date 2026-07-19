@@ -1,15 +1,15 @@
 # Claude Code Integration
 
-[`claude-sharedserver`](https://github.com/georgeharker/claude-sharedserver)
+[`claude-sharedserver`](../plugins/claude)
 is a [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) plugin
 that manages shared backend processes through the `sharedserver` CLI documented
 in this repo. It is the Claude Code counterpart to the
 [Neovim plugin](NEOVIM.md) and the [OpenCode plugin](OPENCODE.md): same CLI
 underneath, same reference-counted lifecycle, wired into a different host.
 
-The plugin is vendored into this repository as a git submodule under
+The plugin lives in this repository as a plain directory under
 `plugins/claude/`. Its own
-[README](https://github.com/georgeharker/claude-sharedserver/blob/main/README.md)
+[README](../plugins/claude/README.md)
 is the canonical reference for install, configuration, and diagnostics — this
 page is a short orientation.
 
@@ -38,11 +38,12 @@ architecture, grace periods, and dead-client detection applies unchanged.
 
 ## Install
 
-The plugin is a directory you point Claude Code at via the marketplace:
+The plugin is a directory you point Claude Code at via the marketplace. The
+marketplace manifest lives at the repo root, so add it straight from GitHub:
 
 ```sh
-claude plugin marketplace add georgeharker/claude-sharedserver
-claude plugin install claude-sharedserver
+claude plugin marketplace add georgeharker/sharedserver
+claude plugin install sharedserver@sharedserver
 ```
 
 Then drop a config file at `~/.config/claude/sharedserver.json` (or set
@@ -67,27 +68,27 @@ supports **`skipIfEnv`**: name an env var and the entry is skipped whenever that
 var is non-empty, for when another host already launched the process for this
 session.
 
-## Working with the submodule
+## Working with the plugin source
+
+The plugin is a plain directory in this repo (`plugins/claude/`), so a plain
+clone already contains its full source:
 
 ```bash
-# Clone this repo with submodules in one step
-git clone --recurse-submodules https://github.com/georgeharker/sharedserver
-
-# Or initialize after a plain clone
-git submodule update --init
+git clone https://github.com/georgeharker/sharedserver
 ```
 
-To bump the pinned commit to the plugin's latest `main`:
+To change the plugin, edit its files under `plugins/claude/` directly and commit
+as normal:
 
 ```bash
-git submodule update --remote plugins/claude
-git add plugins/claude && git commit -m "chore: bump claude-sharedserver submodule"
+$EDITOR plugins/claude/claude-sharedserver/hooks/use-servers.sh
+git add plugins/claude && git commit -m "feat(claude): ..."
 ```
 
 ## Reference
 
-The submodule README covers the parts not repeated here — the full per-server
+The plugin README covers the parts not repeated here — the full per-server
 option table, the exact `sharedserver use` / `unuse` invocations, the
 `skipIfEnv` / mcp-companion pairing, and diagnostics.
 
-See the [claude-sharedserver README](https://github.com/georgeharker/claude-sharedserver/blob/main/README.md).
+See the [claude-sharedserver README](../plugins/claude/README.md).

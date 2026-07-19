@@ -1,6 +1,0 @@
-[submodule "plugins/claude"]
-	path = plugins/claude
-	url = https://github.com/georgeharker/claude-sharedserver.git
-[submodule "plugins/opencode"]
-	path = plugins/opencode
-	url = https://github.com/georgeharker/opencode-sharedserver.git

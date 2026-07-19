@@ -1,10 +1,11 @@
 name: Release (opencode-sharedserver)
 
-# Publishes the @geohar/opencode-sharedserver npm plugin. Its version is INDEPENDENT
-# of the sharedserver rust crate, so it uses its OWN scoped tag rather than the
-# crate's `v*`:
+# Publishes the @geohar/opencode-sharedserver npm plugin on the unified release tag
+# (v*), in lockstep with the whole repo — one vX.Y.Z tag releases the rust crate,
+# the Claude Code plugin, and this npm package together. Release: bump every manifest
+# with scripts/bump-version.sh <version>, then push the vX.Y.Z tag:
 #
-#   git tag opencode-sharedserver-v0.1.5 && git push origin opencode-sharedserver-v0.1.5
+#   scripts/bump-version.sh <version> && git push && git push origin v<version>
 #
 # Mirrors the repo's other release workflows: tag-triggered, trusted publishing
 # (OIDC, no secrets), an environment gate. npm equivalent of PyPI/crate Trusted
@@ -21,7 +22,7 @@ name: Release (opencode-sharedserver)
 
 on:
   push:
-    tags: ["opencode-sharedserver-v*"]
+    tags: ["v*"]
 
 jobs:
   publish:
@@ -32,7 +33,7 @@ jobs:
       contents: read
     defaults:
       run:
-        working-directory: plugins/opencode-sharedserver
+        working-directory: plugins/opencode
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,9 +46,9 @@ jobs:
       - name: Verify tag matches package version
         run: |
           pkg="$(node -p "require('./package.json').version")"
-          tag="${GITHUB_REF_NAME#opencode-sharedserver-v}"
+          tag="${GITHUB_REF_NAME#v}"
           if [ "$pkg" != "$tag" ]; then
-            echo "::error::tag …-v$tag does not match plugin version $pkg — bump plugins/opencode-sharedserver/package.json"
+            echo "::error::tag …-v$tag does not match plugin version $pkg — bump plugins/opencode/package.json"
             exit 1
           fi
       - run: npm install --no-audit --no-fund

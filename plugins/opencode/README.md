@@ -237,8 +237,8 @@ code is preserved.
 ## Local development
 
 ```bash
-git clone https://github.com/georgeharker/opencode-sharedserver
-cd opencode-sharedserver
+git clone https://github.com/georgeharker/sharedserver
+cd sharedserver/plugins/opencode
 npm install
 npm run build         # emits dist/
 npm run typecheck     # without emit
@@ -250,7 +250,7 @@ plugin spec at the directory:
 ```json
 {
     "plugin": [
-        ["file:///Users/me/Development/opencode-sharedserver", { "servers": { ... } }]
+        ["file:///Users/me/Development/sharedserver/plugins/opencode", { "servers": { ... } }]
     ]
 }
 ```

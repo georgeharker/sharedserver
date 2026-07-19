@@ -1,0 +1,27 @@
+{
+  "description": "Manage shared backend processes via the sharedserver CLI. SessionStart attaches; SessionEnd detaches.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/use-servers.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/unuse-servers.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
