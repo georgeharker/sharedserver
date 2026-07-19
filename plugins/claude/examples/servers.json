@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "mcp-combiner": {
+      "command": "mcp-combiner",
+      "args": [
+        "--mcp",
+        "--config", "${HOME}/.cache/secrets/${USER}.mcpservers.json",
+        "--port", "9741"
+      ],
+      "gracePeriod": "30m",
+      "logFile": "${HOME}/.cache/sharedserver/mcp-combiner.log",
+      "skipIfEnv": "MCP_COMPANION_COMBINER_URL"
+    }
+  }
+}

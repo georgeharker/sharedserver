@@ -46,7 +46,7 @@ claude plugin marketplace add georgeharker/sharedserver
 claude plugin install sharedserver@sharedserver
 ```
 
-Then drop a config file at `~/.config/claude/sharedserver.json` (or set
+Then drop a config file at `~/.config/sharedserver/servers.json` (or set
 `CLAUDE_SHAREDSERVER_CONFIG`). `${VAR}` references are expanded throughout:
 
 ```json

@@ -6,8 +6,34 @@
 
 set -u
 
-config="${CLAUDE_SHAREDSERVER_CONFIG:-$HOME/.config/claude/sharedserver.json}"
-[[ ! -f "$config" ]] && exit 0
+# Must resolve exactly as use-servers.sh does, or we would `unuse` a different
+# server set than we attached to. Highest precedence first: explicit override,
+# per-project, then global; first existing file wins (no merging).
+_resolve_config() {
+  local c d
+  # 1. Explicit override.
+  if [[ -n "${CLAUDE_SHAREDSERVER_CONFIG:-}" && -f "${CLAUDE_SHAREDSERVER_CONFIG}" ]]; then
+    printf '%s' "$CLAUDE_SHAREDSERVER_CONFIG"; return 0
+  fi
+  # 2. Per-project, WALKED UP from the project dir — mirrors how
+  #    mcp-companion discovers .mcp-companion.json.
+  d="$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P)" || d=""
+  while [[ -n "$d" ]]; do
+    for c in "$d/.sharedserver.json" "$d/.sharedserver/servers.json"; do
+      [[ -f "$c" ]] && { printf '%s' "$c"; return 0; }
+    done
+    [[ "$d" == "/" ]] && break
+    d="$(dirname "$d")"
+  done
+  # 3. Global fallback.
+  c="$HOME/.config/sharedserver/servers.json"
+  [[ -f "$c" ]] && { printf '%s' "$c"; return 0; }
+  return 1
+}
+
+# Quiet on teardown: if there is no config we never attached anything, and
+# SessionEnd is not the place to nag (use-servers.sh reports it on start).
+config="$(_resolve_config)" || exit 0
 
 ss_bin="${CLAUDE_PLUGIN_ROOT}/bin/sharedserver"
 

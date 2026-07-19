@@ -9,7 +9,7 @@
     {
       "name": "sharedserver",
       "source": "./plugins/claude",
-      "description": "Generic sharedserver lifecycle for Claude Code: reads ~/.config/claude/sharedserver.json and runs `sharedserver use`/`unuse` per Claude session, sharing one reference-counted backend across sessions."
+      "description": "Generic sharedserver lifecycle for Claude Code: reads ~/.config/sharedserver/servers.json and runs `sharedserver use`/`unuse` per Claude session, sharing one reference-counted backend across sessions."
     }
   ]
 }

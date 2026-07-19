@@ -380,7 +380,7 @@ OpenCode, Claude Code, and the Neovim config without changes.
 ```
 
 ```jsonc
-// Claude Code — ~/.config/claude/sharedserver.json
+// Claude Code — ~/.config/sharedserver/servers.json
 {
     "servers": {
         "chroma": {

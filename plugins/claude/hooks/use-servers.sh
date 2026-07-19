@@ -8,8 +8,36 @@
 
 set -u
 
-config="${CLAUDE_SHAREDSERVER_CONFIG:-$HOME/.config/claude/sharedserver.json}"
-[[ ! -f "$config" ]] && exit 0
+# Config resolution, highest precedence first: an explicit override, then a
+# per-project config, then the global one. First file that exists wins — the
+# per-project file REPLACES the global rather than merging with it.
+# unuse-servers.sh resolves identically; keep the two in sync or `unuse` will
+# not match what `use` attached to.
+_resolve_config() {
+  local c d
+  # 1. Explicit override.
+  if [[ -n "${CLAUDE_SHAREDSERVER_CONFIG:-}" && -f "${CLAUDE_SHAREDSERVER_CONFIG}" ]]; then
+    printf '%s' "$CLAUDE_SHAREDSERVER_CONFIG"; return 0
+  fi
+  # 2. Per-project, WALKED UP from the project dir — mirrors how
+  #    mcp-companion discovers .mcp-companion.json.
+  d="$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P)" || d=""
+  while [[ -n "$d" ]]; do
+    for c in "$d/.sharedserver.json" "$d/.sharedserver/servers.json"; do
+      [[ -f "$c" ]] && { printf '%s' "$c"; return 0; }
+    done
+    [[ "$d" == "/" ]] && break
+    d="$(dirname "$d")"
+  done
+  # 3. Global fallback.
+  c="$HOME/.config/sharedserver/servers.json"
+  [[ -f "$c" ]] && { printf '%s' "$c"; return 0; }
+  return 1
+}
+
+# No config anywhere simply means no configured servers — a normal state, not an
+# error. Exit quietly so an unconfigured install launches cleanly.
+config="$(_resolve_config)" || exit 0
 
 ss_bin="${CLAUDE_PLUGIN_ROOT}/bin/sharedserver"
 
@@ -41,7 +69,7 @@ while IFS= read -r entry; do
 
   # When skipIfEnv names an env var that is set (non-empty), this server has
   # been launched for us by another host — e.g. CodeCompanion / mcp-companion
-  # injects MCP_COMPANION_BRIDGE_URL, the same var the bridge's MCP client
+  # injects MCP_COMPANION_COMBINER_URL, the same var the combiner's MCP client
   # config expands. Don't launch (or attach to) it ourselves in that context.
   if [[ -n "$skip_if_env" && -n "${!skip_if_env:-}" ]]; then
     continue
