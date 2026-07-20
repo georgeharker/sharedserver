@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "sharedserver"
-version = "0.6.4-alpha.4"
+version = "0.6.4-alpha.5"
 dependencies = [
  "anyhow",
  "chrono",
