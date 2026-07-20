@@ -7,14 +7,14 @@ name: Release (opencode-sharedserver)
 #
 #   scripts/bump-version.sh <version> && git push && git push origin v<version>
 #
-# Mirrors the repo's other release workflows: tag-triggered, trusted publishing
+# Mirrors the repo's other release workflows: trusted publishing
 # (OIDC, no secrets), an environment gate. npm equivalent of PyPI/crate Trusted
 # Publishing:
 #
 #   One-time setup at https://www.npmjs.com/ → the package → Settings → Trusted
 #   Publisher, with:
 #       repository:   georgeharker/sharedserver
-#       workflow:     release-opencode-plugin.yml
+#       workflow:     release.yml     <- the CALLER, not this file
 #       environment:  npm
 #   Then create a GitHub environment named "npm" (repo Settings → Environments).
 #
