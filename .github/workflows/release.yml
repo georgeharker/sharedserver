@@ -292,15 +292,30 @@ jobs:
       "id-token": "write"
       "packages": "write"
 
+  custom-release-opencode-plugin:
+    needs:
+      - plan
+      - host
+    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+    uses: ./.github/workflows/release-opencode-plugin.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
+    # publish jobs get escalated permissions
+    permissions:
+      "id-token": "write"
+      "packages": "write"
+
   announce:
     needs:
       - plan
       - host
       - custom-publish-crates
+      - custom-release-opencode-plugin
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') && (needs.custom-release-opencode-plugin.result == 'skipped' || needs.custom-release-opencode-plugin.result == 'success') }}
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

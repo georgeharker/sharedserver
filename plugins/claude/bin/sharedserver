@@ -5,38 +5,23 @@
 #   3. ~/.cargo/bin, ~/.local/bin, /opt/homebrew/bin, /usr/local/bin
 #   4. download a pinned release via the cargo-dist installer  <-- the tail
 #
-# (4) is what makes a bare plugin install work with no Rust toolchain. Before it,
-# the only route was `cargo install sharedserver`, so "install the plugin" really
-# meant "install the plugin AND have cargo" — a much heavier ask than the uv the
-# sibling plugins already assume.
+# (4) is what lets a bare plugin install work with no Rust toolchain.
 #
-# Kept behaviourally identical to the OpenCode plugin's resolver
-# (plugins/opencode/src/index.ts): same ladder, same floor, same warning text, same
-# degrade-rather-than-die fallback. A user running both clients should not see two
-# different answers to "which sharedserver am I on, and why".
+# Behaviourally identical to the OpenCode resolver (plugins/opencode/src/index.ts) —
+# same ladder, floor, warnings and fallback — so both clients answer "which
+# sharedserver am I on, and why" the same way. Change them together.
 
 set -eu
 
 # --- Version floor ----------------------------------------------------------------
-# THE FLOOR IS THE PIN. Both answer the same question, so they are one number, read
-# from this plugin's own manifest: we would install v<plugin version>, so anything
-# already present is "new enough" exactly when it is >= that. Keeping them as two
-# constants meant they could disagree — accepting on PATH a version older than the
-# one we would otherwise have fetched, which is a guarantee that quietly isn't one.
+# The floor IS the pin: what we would install is exactly what counts as new enough, so
+# it is one number read from the manifest, self-maintaining via lockstep releases. Two
+# constants could disagree, accepting a version older than the one we would fetch.
+# The test is >=, so a newer local install is never undone; a bump does cost a user one
+# patch behind a single download.
 #
-# Because releases are lockstep (scripts/bump-version.sh writes the plugin manifest
-# and rust/Cargo.toml together), this is self-maintaining: bump the release and the
-# floor follows. Nothing to forget.
-#
-# Consequence worth knowing: a plugin bump does invalidate a PATH install one patch
-# behind, so that user takes one download. A NEWER install than ours still wins —
-# the test is >=, not ==, so `cargo install`ing ahead of the plugin is never undone.
-#
-# HARDCODED_FLOOR is only the backstop for an unreadable manifest. 0.5.0 is where the
-# PID-reuse guard landed (lockfile start stamps; Alive/Zombie/Gone liveness), which is
-# the oldest release these plugins are actually correct against: they refcount by
-# client PID, and without that guard a recycled PID reads as a live client and can
-# hold a server open indefinitely.
+# HARDCODED_FLOOR is the backstop for an unreadable manifest: 0.5.0 added the PID-reuse
+# guard, without which a recycled client PID can hold a server open indefinitely.
 HARDCODED_FLOOR="0.5.0"
 
 version_ge() { # version_ge A B -> success when dotted-numeric prefix of A >= B
@@ -122,24 +107,18 @@ fi
 
 # --- Fetch a pinned release --------------------------------------------------------
 #
-# CONCURRENCY. This shim runs from a SessionStart hook, and people open several
-# sessions at once. Without a lock, N sessions would all miss the probe and all run
-# the installer against the same target path — the installer is not written for
-# concurrent invocation, and a half-written binary is worse than none. `mkdir` is the
-# lock primitive because it is atomic on every filesystem that matters and needs no
-# flock/lockfile utility; the PID inside is for diagnosis only, never for liveness.
-#
-# The loser of the race does NOT install. It waits for the winner and re-probes.
+# Locked because this runs from SessionStart and people open several sessions at once;
+# the installer is not safe to run concurrently against one target path. `mkdir` is
+# atomic everywhere and needs no helper; the PID inside is for diagnosis, not liveness.
+# The loser waits and re-probes rather than installing too.
 _lockdir="${TMPDIR:-/tmp}/.sharedserver-install.lock"
 _have_lock=0
 _cleanup() { [ "$_have_lock" = 1 ] && rm -rf "$_lockdir" 2>/dev/null || true; }
 trap _cleanup EXIT INT TERM
 
-# ALWAYS exec through this once the lock may be held. `exec` replaces the process
-# image, so the EXIT trap never runs — a bare `exec` while holding the lock leaks the
-# directory permanently, and every later invocation then burns its full 20s wait and
-# reports a phantom "another process is installing". (Observed, not theorised: an
-# earlier test left /tmp/.sharedserver-install.lock behind and poisoned the next run.)
+# Always exec through this once the lock may be held: `exec` replaces the process, so
+# the EXIT trap never runs and a bare exec leaks the lock — after which every later run
+# burns its full 20s wait on phantom contention.
 _exec() {
   _cleanup
   exec "$@"
@@ -210,17 +189,10 @@ if [ -z "$_stale" ]; then
   echo "  This needs no Rust toolchain. To use your own build instead, set SHAREDSERVER_BIN." >&2
 fi
 
-# Download to a file, THEN run it — deliberately not `curl … | sh`.
-#
-# In a pipeline the exit status is the LAST command's, so `curl -f … | sh` reports
-# SUCCESS when curl 404s: curl fails, emits nothing, sh reads empty input and exits
-# 0. That is not hypothetical — it is what this script did on its first test, against
-# a tag whose release assets did not exist yet, and it misreported the failure as
-# "install succeeded but no binary appeared". Staging the script also means a
-# truncated download fails the size check below instead of being partially executed.
-#
-# --proto '=https' --tlsv1.2 mirror cargo-dist's own documented install line: refuse
-# to be redirected off TLS, and refuse ancient TLS.
+# Download to a file, then run it — NOT `curl … | sh`, whose exit status is sh's, so a
+# 404 reads as success (curl fails, emits nothing, sh exits 0 on empty input). Staging
+# also lets a truncated download fail the size check instead of half-executing.
+# --proto '=https' --tlsv1.2 match cargo-dist's own install line.
 _script="$_lockdir/installer.sh"
 if ! curl --proto '=https' --tlsv1.2 -LsSf "$_url" -o "$_script" 2>/dev/null; then
   echo "sharedserver: could not download the installer from $_url" >&2

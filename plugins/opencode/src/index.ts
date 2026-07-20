@@ -54,13 +54,10 @@ const CANDIDATE_BINARIES = [
     "/opt/homebrew/bin/sharedserver",
 ]
 
-/** THE FLOOR IS THE PIN — see plugins/claude/bin/sharedserver for the full rationale.
- *  Both answer the same question ("what would we install?" / "is what's here new
- *  enough?"), so they are ONE number, read from this package's own version. Lockstep
- *  releases (scripts/bump-version.sh writes package.json and rust/Cargo.toml together)
- *  make it self-maintaining. The test is >=, so a NEWER local install always wins.
- *  HARDCODED_FLOOR is only the backstop for an unreadable manifest: 0.5.0 is where the
- *  PID-reuse guard landed, the oldest release this plugin is actually correct against. */
+/** The floor IS the pin — one number from this package's version, self-maintaining via
+ *  lockstep releases. The test is >=, so a newer local install is never undone.
+ *  HARDCODED_FLOOR is the backstop for an unreadable manifest: 0.5.0 added the
+ *  PID-reuse guard. See plugins/claude/bin/sharedserver. */
 const HARDCODED_FLOOR = "0.5.0"
 
 const PLUGIN_VERSION: string | undefined = (() => {
@@ -91,9 +88,8 @@ function versionOf(candidate: string, env: NodeJS.ProcessEnv): [number, number, 
     return parseVersion(`${r.stdout?.toString() ?? ""}${r.stderr?.toString() ?? ""}`)
 }
 
-/** Synchronous sleep. This whole resolution path is sync (plugin init calls it before
- *  anything can be awaited), so the lock wait cannot use timers. Atomics.wait on a
- *  throwaway buffer blocks without burning CPU — unlike a spin loop. */
+/** Synchronous sleep — this resolution path runs before anything can be awaited, so the
+ *  lock wait cannot use timers. Atomics.wait blocks without spinning. */
 function sleepSync(ms: number): void {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
@@ -116,12 +112,8 @@ function probeAny(override: string | undefined, env: NodeJS.ProcessEnv): string 
 }
 
 /** Resolve the binary, fetching a pinned release when nothing usable is installed.
- *
- *  Behaviourally identical to plugins/claude/bin/sharedserver: same ladder, same
- *  floor, same lock (deliberately the SAME lock directory, so a Claude session and an
- *  OpenCode session starting together coordinate rather than race), same
- *  degrade-rather-than-die fallback. A user running both clients should not get two
- *  different answers to "which sharedserver am I on, and why". */
+ *  Behaviourally identical to plugins/claude/bin/sharedserver — same ladder, floor,
+ *  lock and fallback. Change them together. */
 function resolveBinary(
     override: string | undefined,
     env: NodeJS.ProcessEnv,
@@ -177,8 +169,8 @@ function resolveBinary(
 /** Download and run the cargo-dist installer for the pinned version, then re-probe.
  *  Returns the resolved binary, or undefined if anything went wrong. */
 function installPinned(env: NodeJS.ProcessEnv, log?: LogFn, toast?: ToastFn): string | undefined {
-    // The SAME lock directory as the shell shim — cross-CLIENT coordination, not just
-    // cross-session. mkdir is the primitive because it is atomic everywhere.
+    // Same lock directory as the shell shim, so Claude and OpenCode coordinate rather
+    // than race. mkdir is atomic everywhere.
     const lockdir = join(env.TMPDIR || "/tmp", ".sharedserver-install.lock")
     let haveLock = false
     try {
@@ -217,11 +209,8 @@ function installPinned(env: NodeJS.ProcessEnv, log?: LogFn, toast?: ToastFn): st
             ? `https://github.com/georgeharker/sharedserver/releases/download/v${PLUGIN_VERSION}/sharedserver-installer.sh`
             : "https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
 
-        // Download to a file, THEN run it — deliberately not `curl … | sh`. In a shell
-        // pipeline the exit status is the LAST command's, so a 404 reports SUCCESS:
-        // curl fails, emits nothing, sh reads empty input and exits 0. The shell shim
-        // hit exactly that during testing and misreported the failure. spawnSync uses
-        // no shell, so the download's status is unambiguous.
+        // Download to a file, then run it. `curl … | sh` would report success on a 404,
+        // since a pipeline's status is sh's; spawnSync uses no shell, so this is exact.
         const script = join(lockdir, "installer.sh")
         const dl = spawnSync("curl", ["--proto", "=https", "--tlsv1.2", "-LsSf", url, "-o", script], { env })
         if (dl.error || dl.status !== 0) {

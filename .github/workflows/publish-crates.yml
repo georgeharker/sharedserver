@@ -1,27 +1,19 @@
 name: Publish to crates.io
 #
-# Invoked BY cargo-dist's release.yml as a custom publish job (`publish-jobs =
-# ["./publish-crates"]` in dist-workspace.toml), never on its own trigger.
+# Invoked by cargo-dist's release.yml as a publish job (`publish-jobs` in
+# dist-workspace.toml), so it runs only after every target binary has built.
 #
-# WHY: this used to fire independently on the `v*` tag, racing the binary build.
-# A crates.io publish is effectively irreversible — you can yank, not unpublish —
-# whereas a binary build failing on one target is just a re-run. Firing both off
-# the same tag meant the bad outcome was "crate published, no binaries", leaving
-# the hosted installer URL a 404 — which is precisely what the plugin shims curl
-# on every session start. Running as a cargo-dist publish job inverts that: every
-# target builds first, and if any fails the crate simply doesn't publish.
-#
-# So do NOT reintroduce a `push: tags:` trigger here. That would restore the race
-# this file exists to remove, and it would do so silently — nothing fails until a
-# release happens to build badly.
+# Do NOT add a `push: tags:` trigger. It used to have one, which raced the build: a
+# publish is irreversible (yank, never unpublish) while a build failure is a re-run,
+# so the bad outcome was a published crate whose installer URL 404s — the URL the
+# plugin shims curl on every session start.
 
 on:
   workflow_call:
     inputs:
       plan:
-        # cargo-dist passes its release plan to EVERY publish job it calls. Unused
-        # here, but it must be declared: an undeclared input makes the whole
-        # workflow invalid, which surfaces only when a release actually runs.
+        # Unused, but cargo-dist passes it to every publish job and an undeclared
+        # input invalidates the workflow — which only shows up during a release.
         description: cargo-dist release plan (JSON)
         required: true
         type: string

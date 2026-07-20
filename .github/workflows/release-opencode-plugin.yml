@@ -19,10 +19,22 @@ name: Release (opencode-sharedserver)
 #   Then create a GitHub environment named "npm" (repo Settings → Environments).
 #
 # No NPM_TOKEN needed once the trusted publisher is configured.
+#
+# Invoked by cargo-dist's release.yml as a publish job, not on its own tag trigger, so
+# it runs only after every target binary has built — this package's resolver downloads
+# those binaries, so publishing it before they exist ships a plugin pointing at a 404.
+#
+# Do NOT rename this file: npm's trusted publisher is bound to it by name.
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      plan:
+        # Unused, but cargo-dist passes it to every publish job and an undeclared
+        # input invalidates the workflow.
+        description: cargo-dist release plan (JSON)
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -54,4 +66,14 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Publish to npm (trusted publishing + provenance)
-        run: npm publish --provenance --access public
+        # npm rejects a prerelease published without an explicit --tag, since the
+        # default dist-tag is `latest`. Send prereleases to `next` so `latest` stays
+        # stable.
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          if [ "${ver#*-}" != "$ver" ]; then
+            echo "publishing prerelease $ver under dist-tag 'next'"
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
