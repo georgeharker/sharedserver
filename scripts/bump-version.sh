@@ -122,7 +122,25 @@ open(path, "w").write(out)
 PY
 }
 
-highest() { printf '%s\n' "$@" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1; }
+# Semver precedence, not plain numeric sort. A prerelease ranks BELOW the release it
+# leads to (0.6.4-alpha.5 < 0.6.4) — `sort -k3,3n` reads both third fields as 4 and
+# breaks the tie the wrong way, so promoting a prerelease to its final version was
+# rejected as "going backwards".
+highest() {
+  printf '%s\n' "$@" | python3 -c '
+import sys
+def key(v):
+    core, _, pre = v.strip().partition("-")
+    nums = [int(x) if x.isdigit() else 0 for x in (core.split(".") + ["0", "0"])[:3]]
+    # No prerelease sorts above any prerelease of the same core version.
+    if not pre:
+        return (nums, 1, [])
+    # Dot-separated identifiers: numeric ones compare numerically and below alphas.
+    ids = [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in pre.split(".")]
+    return (nums, 0, ids)
+print(max((l for l in sys.stdin if l.strip()), key=key).strip())
+'
+}
 
 curs=(); for i in "${!MANIFESTS[@]}"; do
   v="$(read_ver "${MANIFESTS[$i]}" "${TARGETS[$i]}")"
