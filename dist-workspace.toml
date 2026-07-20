@@ -11,6 +11,19 @@ ci = "github"
 # every target binary has built. See .github/workflows/publish-crates.yml for why
 # the ordering matters (irreversible publish vs. re-runnable build).
 publish-jobs = ["./publish-crates"]
+# Publish prerelease-tagged versions to crates.io too, rather than skipping them.
+#
+# Without this, a prerelease tag builds and hosts binaries but skips the publish job
+# entirely — so the ONE part of the pipeline most likely to break (the workflow_call
+# wiring: `environment: crates`, secret inheritance, the `plan` input) is precisely
+# the part a prerelease never exercises, and a mistake would surface only during a
+# real, irreversible release.
+#
+# The cost is that a prerelease version is permanently claimed on crates.io (yank
+# exists; unpublish does not). That is cheap: cargo will not resolve a prerelease
+# unless a range opts in (`^0.6.4-0`), so `cargo install sharedserver` ignores it.
+# A permanently-inert version is a fair price for proving the release path works.
+publish-prereleases = true
 # The installers to generate for each app.
 # `shell` is load-bearing, not cosmetic: it publishes the hosted installer script
 # that the Claude/OpenCode plugin shims curl when no sharedserver is on PATH, so a
@@ -18,13 +31,21 @@ publish-jobs = ["./publish-crates"]
 installers = ["shell"]
 # Target platforms to build apps for (Rust target-triple syntax).
 #
-# NO WINDOWS. cargo-dist's default list includes x86_64-pc-windows-msvc, but this
-# crate depends unconditionally on `nix` (a POSIX wrapper whose own supported-target
-# list is Unix-only) and `libc`. Verified with `cargo tree --target
-# x86_64-pc-windows-msvc`: nix resolves INTO the Windows tree rather than being
-# gated out, so the build would attempt to compile it and fail. That matters more
-# than it looks — crates.io publishing is gated on every target building, so one
-# impossible target would block the whole release, not just skip an artifact.
-# Windows support would mean target-gating nix behind cfg(unix) and writing a
-# Windows process-management path first.
+# NO WINDOWS. cargo-dist's default list includes x86_64-pc-windows-msvc, which this
+# crate cannot build — but NOT for the reason it first appears.
+#
+# `nix` does not fail to compile on Windows. Its lib.rs is `#![cfg(unix)]`, so there
+# it compiles to an EMPTY crate, perfectly successfully. The failure lands in our own
+# code, which then finds nothing to import. Verified with `cargo check --target
+# x86_64-pc-windows-msvc`: 9 errors across core/{lockfile,log,health}.rs — unresolved
+# `nix::fcntl`, `nix::unistd`, `os::unix`, and no `as_raw_fd` on File.
+#
+# So this is not a dependency to gate; it is a port. The imports are the POSIX core of
+# what sharedserver does — fork/setsid/setpgid, kill/killpg, waitpid, flock — and
+# Windows needs job objects, TerminateProcess, WaitForSingleObject and LockFileEx
+# behind a platform/ abstraction. Note also that SIGTERM has no Windows equivalent for
+# arbitrary child processes, so `stop` would become unconditionally forceful.
+#
+# Listing it here would not merely skip an artifact: crates.io publishing is gated on
+# every target building, so one impossible target blocks the entire release.
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
