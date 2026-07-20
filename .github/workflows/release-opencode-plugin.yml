@@ -40,10 +40,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: npm
-    # No job-level `permissions:` — as a called workflow it inherits what release.yml
-    # grants publish jobs (id-token: write, packages: write). Declaring any permission
-    # the caller did not grant, such as the `contents: read` this used to carry, can
-    # only narrow, never widen, and fails the whole run at startup.
+    # No `permissions:` — a called workflow can only narrow the caller's grant, so
+    # asking for anything release.yml didn't give fails the run at startup.
     defaults:
       run:
         working-directory: plugins/opencode

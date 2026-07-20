@@ -226,11 +226,9 @@ function installPinned(env: NodeJS.ProcessEnv, log?: LogFn, toast?: ToastFn): st
             return undefined
         }
 
-        // Make sure the installer can actually verify what it downloads. cargo-dist
-        // embeds the expected sha256 but looks up only `sha256sum` and returns SUCCESS
-        // when it is missing — so on macOS (which ships `shasum -a 256`) verification is
-        // silently skipped. Put a sha256sum on PATH rather than patching their script;
-        // `shasum -a 256 -b` output is byte-identical. With neither, refuse.
+        // cargo-dist embeds the expected sha256 but looks up only `sha256sum` and SKIPS
+        // verification when missing — i.e. always, on macOS. Give it one (identical
+        // output) rather than execute an unverified binary.
         let runEnv = env
         if (spawnSync("sh", ["-c", "command -v sha256sum"], { stdio: "ignore" }).status !== 0) {
             if (spawnSync("sh", ["-c", "command -v shasum"], { stdio: "ignore" }).status !== 0) {

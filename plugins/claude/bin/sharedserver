@@ -204,16 +204,9 @@ if [ ! -s "$_script" ]; then
   _fallback_or_die "$@"
 fi
 
-# Make sure the installer can actually verify what it downloads.
-#
-# cargo-dist embeds the expected sha256 in the installer, but looks up ONLY
-# `sha256sum` and — critically — `return 0`s when it is missing, so verification is
-# skipped and the install still succeeds. macOS has no sha256sum (it ships
-# `shasum -a 256`), so on a stock Mac we would execute an unverified binary.
-#
-# Put a sha256sum on PATH rather than patching their script: `shasum -a 256 -b` is
-# byte-identical in output, so their own check finds a tool and verifies properly.
-# With neither available we refuse instead of installing unverified.
+# cargo-dist embeds the expected sha256 but looks up only `sha256sum` and SKIPS
+# verification when it is missing — i.e. always, on macOS, which ships `shasum -a 256`.
+# Give it a sha256sum (identical output) rather than execute an unverified binary.
 if ! command -v sha256sum >/dev/null 2>&1; then
   if command -v shasum >/dev/null 2>&1; then
     printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' >"$_lockdir/sha256sum"
