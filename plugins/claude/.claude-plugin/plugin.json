@@ -1,6 +1,6 @@
 {
   "name": "sharedserver",
-  "version": "0.6.4-alpha.2",
+  "version": "0.6.4-alpha.3",
   "description": "Manage shared backend processes through the `sharedserver` CLI. SessionStart attaches via `sharedserver use`; SessionEnd detaches via `sharedserver unuse`. Multiple Claude Code sessions share a single backend; the server survives session restarts within its grace period.",
   "author": {
     "name": "George Harker"
