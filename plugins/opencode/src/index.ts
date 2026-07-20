@@ -7,6 +7,7 @@ import { homedir } from "node:os"
 import { dirname, join, resolve as resolvePath } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Plugin } from "@opencode-ai/plugin"
+import { resolveSharedserver } from "./sharedserver-resolve.js"
 
 type ServerSpec = {
     /** Binary to run (required unless `lazy` is true). */
@@ -46,20 +47,6 @@ type Options = {
 type LogFn = (level: "info" | "warn" | "error", message: string) => void
 type ToastFn = (variant: "success" | "warning" | "error", message: string) => void
 
-const CANDIDATE_BINARIES = [
-    "sharedserver",
-    join(homedir(), ".cargo", "bin", "sharedserver"),
-    join(homedir(), ".local", "bin", "sharedserver"),
-    "/usr/local/bin/sharedserver",
-    "/opt/homebrew/bin/sharedserver",
-]
-
-/** The floor IS the pin — one number from this package's version, self-maintaining via
- *  lockstep releases. The test is >=, so a newer local install is never undone.
- *  HARDCODED_FLOOR is the backstop for an unreadable manifest: 0.5.0 added the
- *  PID-reuse guard. See plugins/claude/bin/sharedserver. */
-const HARDCODED_FLOOR = "0.5.0"
-
 const PLUGIN_VERSION: string | undefined = (() => {
     try {
         const here = dirname(fileURLToPath(import.meta.url))
@@ -70,193 +57,16 @@ const PLUGIN_VERSION: string | undefined = (() => {
     }
 })()
 
-const MIN_SHAREDSERVER_VERSION = PLUGIN_VERSION ?? HARDCODED_FLOOR
-
-function parseVersion(text: string): [number, number, number] | undefined {
-    const m = text.match(/(\d+)\.(\d+)\.(\d+)/)
-    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined
-}
-
-function gte(a: [number, number, number], b: [number, number, number]): boolean {
-    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]
-    return true
-}
-
-function versionOf(candidate: string, env: NodeJS.ProcessEnv): [number, number, number] | undefined {
-    const r = spawnSync(candidate, ["--version"], { env })
-    if (r.error) return undefined
-    return parseVersion(`${r.stdout?.toString() ?? ""}${r.stderr?.toString() ?? ""}`)
-}
-
-/** Synchronous sleep — this resolution path runs before anything can be awaited, so the
- *  lock wait cannot use timers. Atomics.wait blocks without spinning. */
-function sleepSync(ms: number): void {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-}
-
-/** First sharedserver found at ANY version, or undefined. Mirrors the shim's ladder. */
-function probeAny(override: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
-    const candidates = [override, env.SHAREDSERVER_BIN, ...CANDIDATE_BINARIES].filter(
-        (v): v is string => typeof v === "string" && v.length > 0,
-    )
-    for (const candidate of candidates) {
-        if (candidate.includes("/")) {
-            if (existsSync(candidate)) return candidate
-            continue
-        }
-        // Presence is "spawn did not fail", NOT "exited 0" — the shim draws the same
-        // distinction. A build that rejects some flag is still present.
-        if (!spawnSync(candidate, ["--version"], { stdio: "ignore", env }).error) return candidate
-    }
-    return undefined
-}
-
-/** Resolve the binary, fetching a pinned release when nothing usable is installed.
- *  Behaviourally identical to plugins/claude/bin/sharedserver — same ladder, floor,
- *  lock and fallback. Change them together. */
+// The resolver lives in its own module so it can be vendored byte-identical into the
+// consuming OpenCode plugins. Here it runs in lockstep mode: no label, floor or URL
+// overrides, so it pins to this package's own version.
 function resolveBinary(
     override: string | undefined,
     env: NodeJS.ProcessEnv,
     log?: LogFn,
     toast?: ToastFn,
 ): string | undefined {
-    const floor = parseVersion(MIN_SHAREDSERVER_VERSION)
-
-    // An explicit binary / SHAREDSERVER_BIN is never second-guessed: the user named a
-    // specific one, so quietly downloading a different one is the wrong answer to
-    // that. Warn if it is old, honour it regardless.
-    const explicit = override ?? env.SHAREDSERVER_BIN
-    if (explicit) {
-        const present = explicit.includes("/")
-            ? existsSync(explicit)
-            : !spawnSync(explicit, ["--version"], { stdio: "ignore", env }).error
-        if (present) {
-            const v = versionOf(explicit, env)
-            if (v && floor && !gte(v, floor)) {
-                const msg =
-                    `sharedserver at ${explicit} is ${v.join(".")}; this plugin ships against ` +
-                    `${MIN_SHAREDSERVER_VERSION}. Using it anyway because you set it explicitly.`
-                log?.("warn", msg)
-                toast?.("warning", msg)
-            }
-            return explicit
-        }
-    }
-
-    const found = probeAny(override, env)
-    if (found) {
-        const v = versionOf(found, env)
-        if (v && floor && gte(v, floor)) return found
-        // Too old: fetch the matching release, but remember this one — if the download
-        // fails we would rather run the old binary than nothing.
-        const msg =
-            `sharedserver at ${found} is ${v?.join(".") ?? "an unknown version"}; this plugin ships against ` +
-            `${MIN_SHAREDSERVER_VERSION}. Fetching the matching release so the plugin and binary stay in ` +
-            `lockstep. To keep your own build instead, set SHAREDSERVER_BIN=${found}`
-        log?.("warn", msg)
-        toast?.("warning", msg)
-        return installPinned(env, log, toast) ?? found
-    }
-
-    log?.(
-        "info",
-        `sharedserver not found; fetching v${MIN_SHAREDSERVER_VERSION} from GitHub releases (one time). ` +
-            "This needs no Rust toolchain. To use your own build instead, set SHAREDSERVER_BIN.",
-    )
-    return installPinned(env, log, toast)
-}
-
-/** Download and run the cargo-dist installer for the pinned version, then re-probe.
- *  Returns the resolved binary, or undefined if anything went wrong. */
-function installPinned(env: NodeJS.ProcessEnv, log?: LogFn, toast?: ToastFn): string | undefined {
-    // Same lock directory as the shell shim, so Claude and OpenCode coordinate rather
-    // than race. mkdir is atomic everywhere.
-    const lockdir = join(env.TMPDIR || "/tmp", ".sharedserver-install.lock")
-    let haveLock = false
-    try {
-        mkdirSync(lockdir)
-        haveLock = true
-    } catch {
-        // Someone else is installing. Wait, bounded, then re-probe rather than
-        // installing concurrently against the same target path.
-        const deadline = Date.now() + 20_000
-        while (existsSync(lockdir) && Date.now() < deadline) sleepSync(250)
-        const after = probeAny(undefined, env)
-        if (after) return after
-        try {
-            mkdirSync(lockdir)
-            haveLock = true
-        } catch {
-            log?.(
-                "warn",
-                `another process is installing sharedserver and did not finish; remove the stale lock if this persists: ${lockdir}`,
-            )
-            return undefined
-        }
-    }
-
-    try {
-        // Re-probe under the lock: the winner may have finished between our failed
-        // mkdir and acquiring it. Without this we reinstall what we just waited for.
-        const already = probeAny(undefined, env)
-        if (already) {
-            const v = versionOf(already, env)
-            const floor = parseVersion(MIN_SHAREDSERVER_VERSION)
-            if (v && floor && gte(v, floor)) return already
-        }
-
-        const url = PLUGIN_VERSION
-            ? `https://github.com/georgeharker/sharedserver/releases/download/v${PLUGIN_VERSION}/sharedserver-installer.sh`
-            : "https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
-
-        // Download to a file, then run it. `curl … | sh` would report success on a 404,
-        // since a pipeline's status is sh's; spawnSync uses no shell, so this is exact.
-        const script = join(lockdir, "installer.sh")
-        const dl = spawnSync("curl", ["--proto", "=https", "--tlsv1.2", "-LsSf", url, "-o", script], { env })
-        if (dl.error || dl.status !== 0) {
-            const msg =
-                `could not download the sharedserver installer from ${url} — a release for ` +
-                `v${PLUGIN_VERSION ?? "?"} may not exist yet, or the network is unavailable`
-            log?.("warn", msg)
-            toast?.("warning", msg)
-            return undefined
-        }
-        if (!existsSync(script) || statSync(script).size === 0) {
-            log?.("warn", `the downloaded sharedserver installer was empty (from ${url})`)
-            return undefined
-        }
-
-        // cargo-dist embeds the expected sha256 but looks up only `sha256sum` and SKIPS
-        // verification when missing — i.e. always, on macOS. Give it one (identical
-        // output) rather than execute an unverified binary.
-        let runEnv = env
-        if (spawnSync("sh", ["-c", "command -v sha256sum"], { stdio: "ignore" }).status !== 0) {
-            if (spawnSync("sh", ["-c", "command -v shasum"], { stdio: "ignore" }).status !== 0) {
-                log?.("warn", "refusing to install sharedserver — neither sha256sum nor shasum is available, so the download could not be checksum-verified")
-                return undefined
-            }
-            const shim = join(lockdir, "sha256sum")
-            writeFileSync(shim, '#!/bin/sh\nexec shasum -a 256 "$@"\n', { mode: 0o755 })
-            runEnv = { ...env, PATH: `${lockdir}:${env.PATH ?? ""}` }
-        }
-
-        const run = spawnSync("sh", [script], { env: runEnv, stdio: "ignore" })
-        if (run.error || run.status !== 0) {
-            log?.("warn", `the sharedserver installer ran but failed (from ${url})`)
-            return undefined
-        }
-        // The installer lands in ~/.cargo/bin or ~/.local/bin, both already in
-        // CANDIDATE_BINARIES — re-probe rather than assuming a path.
-        return probeAny(undefined, env)
-    } finally {
-        if (haveLock) {
-            try {
-                rmSync(lockdir, { recursive: true, force: true })
-            } catch {
-                /* best effort — a leaked lock costs the next run its bounded wait */
-            }
-        }
-    }
+    return resolveSharedserver({ pkgVersion: PLUGIN_VERSION }, override, env, log, toast)
 }
 
 // `sharedserver check` exit codes: 0 = active, 1 = grace, 2 = stopped.
