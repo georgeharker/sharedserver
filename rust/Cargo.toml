@@ -1,6 +1,6 @@
 [package]
 name = "sharedserver"
-version = "0.6.4-alpha.3"
+version = "0.6.4-alpha.4"
 edition = "2021"
 authors = ["SharedServer Contributors"]
 license = "MIT"
