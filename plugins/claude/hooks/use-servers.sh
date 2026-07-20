@@ -41,15 +41,23 @@ config="$(_resolve_config)" || exit 0
 
 ss_bin="${CLAUDE_PLUGIN_ROOT}/bin/sharedserver"
 
-# Expand ${VAR} env references throughout the config before parsing.
-# Requires envsubst (gettext) — install with `brew install gettext` on macOS.
-if ! command -v envsubst >/dev/null 2>&1; then
-  echo "sharedserver: envsubst not found (install gettext)" >&2
+# Report a missing dependency to the USER, not just the debug log. SessionStart stderr
+# is invisible at exit 0, so `echo … >&2; exit 0` meant a configured set of servers
+# silently failed to start with nothing explaining why. stdout is the hook payload and
+# this hook emits nothing else on it, so one object here is safe. No jq — it may be the
+# very thing missing; the messages are static ASCII needing no escaping.
+_bail() { # _bail <message>
+  printf '{"systemMessage":"sharedserver: %s"}\n' "$1"
+  echo "sharedserver: $1" >&2
   exit 0
+}
+
+# Expand ${VAR} env references throughout the config before parsing.
+if ! command -v envsubst >/dev/null 2>&1; then
+  _bail 'envsubst not found, so the configured servers will not start. Install gettext (brew install gettext on macOS).'
 fi
 if ! command -v jq >/dev/null 2>&1; then
-  echo "sharedserver: jq not found" >&2
-  exit 0
+  _bail 'jq not found, so the configured servers will not start. Install jq (brew install jq on macOS).'
 fi
 
 expanded="$(envsubst <"$config")"

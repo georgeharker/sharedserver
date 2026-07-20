@@ -24,6 +24,26 @@ set -eu
 # guard, without which a recycled client PID can hold a server open indefinitely.
 HARDCODED_FLOOR="0.5.0"
 
+# --- Per-repo policy -------------------------------------------------------------
+# This file is vendored BYTE-IDENTICAL into the consuming plugins (mcp-companion,
+# cribsheet, svg-mcp) by their scripts/sync-vendored.sh, so the drift check is a plain
+# diff. Everything that differs between them lives in the optional conf beside it:
+#
+#   SS_LABEL          prefix for user-facing messages     (default: sharedserver)
+#   SS_MIN_VERSION    floor; empty => this plugin's own version (lockstep)
+#   SS_INSTALLER_URL  installer to fetch; empty => pin to this plugin's version
+#
+# Empty defaults give sharedserver's own behaviour: floor IS the pin, both read from
+# the manifest. Consumers set all three, because they use sharedserver rather than
+# shipping it — "new enough" is the right test, and a pinned version in three
+# unrelated repos would be a number to hand-bump forever.
+_conf="$(dirname "$0")/sharedserver.conf"
+# shellcheck source=/dev/null
+[ -f "$_conf" ] && . "$_conf"
+: "${SS_LABEL:=sharedserver}"
+: "${SS_MIN_VERSION:=}"
+: "${SS_INSTALLER_URL:=}"
+
 version_ge() { # version_ge A B -> success when dotted-numeric prefix of A >= B
   local a b i x y
   local IFS=.
@@ -54,9 +74,11 @@ _plugin_version() {
   fi
 }
 
-# The one number: what we would install, and therefore what we require.
+# The one number: what we would install, and therefore what we require. A consumer
+# overrides it via SS_MIN_VERSION, since its own version has nothing to do with
+# sharedserver's.
 _ver="$(_plugin_version || true)"
-MIN_SHAREDSERVER_VERSION="${_ver:-$HARDCODED_FLOOR}"
+MIN_SHAREDSERVER_VERSION="${SS_MIN_VERSION:-${_ver:-$HARDCODED_FLOOR}}"
 
 _probe() { # echo the first sharedserver found (ANY version), or nothing
   if [ -n "${SHAREDSERVER_BIN:-}" ] && [ -x "$SHAREDSERVER_BIN" ]; then
@@ -83,7 +105,7 @@ _probe() { # echo the first sharedserver found (ANY version), or nothing
 if [ -n "${SHAREDSERVER_BIN:-}" ] && [ -x "$SHAREDSERVER_BIN" ]; then
   _v="$(_version_of "$SHAREDSERVER_BIN")"
   if [ -n "$_v" ] && ! version_ge "$_v" "$MIN_SHAREDSERVER_VERSION"; then
-    echo "sharedserver: SHAREDSERVER_BIN points at version $_v; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
+    echo "${SS_LABEL}: SHAREDSERVER_BIN points at version $_v; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
     echo "  Using it anyway because you set it explicitly. Upgrade with: cargo install sharedserver" >&2
   fi
   exec "$SHAREDSERVER_BIN" "$@"
@@ -100,7 +122,7 @@ if _found="$(_probe)"; then
   # fetch a known-good release, but REMEMBER it: if the download fails we would
   # rather run the old binary than nothing.
   _stale="$_found"
-  echo "sharedserver: found ${_found} at version ${_v:-unknown}; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
+  echo "${SS_LABEL}: found ${_found} at version ${_v:-unknown}; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
   echo "  Fetching the matching release so the plugin and binary stay in lockstep." >&2
   echo "  To keep your own build instead, set SHAREDSERVER_BIN=${_found}" >&2
 fi
@@ -151,7 +173,7 @@ else
     fi
   fi
   if ! mkdir "$_lockdir" 2>/dev/null; then
-    echo "sharedserver: another process is installing sharedserver and did not finish." >&2
+    echo "${SS_LABEL}: another process is installing sharedserver and did not finish." >&2
     echo "  If this persists, remove the stale lock: rm -rf $_lockdir" >&2
     _fallback_or_die "$@"
   fi
@@ -169,14 +191,16 @@ fi
 
 # $_ver was resolved at the top — it is both the floor and the pin.
 _base="https://github.com/georgeharker/sharedserver/releases/download"
-if [ -n "$_ver" ]; then
+if [ -n "$SS_INSTALLER_URL" ]; then
+  _url="$SS_INSTALLER_URL"
+elif [ -n "$_ver" ]; then
   _url="$_base/v${_ver}/sharedserver-installer.sh"
 else
   _url="https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
 fi
 
 if ! command -v curl >/dev/null 2>&1; then
-  echo "sharedserver: not found, and curl is unavailable to fetch it." >&2
+  echo "${SS_LABEL}: not found, and curl is unavailable to fetch it." >&2
   echo "  Install it with: cargo install sharedserver" >&2
   _fallback_or_die "$@"
 fi
@@ -185,7 +209,7 @@ fi
 # on the first run that finds nothing usable — so it needs no marker file to stay
 # one-time. It is informational, not a prompt: the install proceeds either way.
 if [ -z "$_stale" ]; then
-  echo "sharedserver: not found; fetching ${_ver:+v$_ver }from GitHub releases (one time)." >&2
+  echo "${SS_LABEL}: not found; fetching ${_ver:+v$_ver }from GitHub releases (one time)." >&2
   echo "  This needs no Rust toolchain. To use your own build instead, set SHAREDSERVER_BIN." >&2
 fi
 
@@ -195,12 +219,12 @@ fi
 # --proto '=https' --tlsv1.2 match cargo-dist's own install line.
 _script="$_lockdir/installer.sh"
 if ! curl --proto '=https' --tlsv1.2 -LsSf "$_url" -o "$_script" 2>/dev/null; then
-  echo "sharedserver: could not download the installer from $_url" >&2
+  echo "${SS_LABEL}: could not download the installer from $_url" >&2
   echo "  (a release for v${_ver:-?} may not exist yet, or the network is unavailable)" >&2
   _fallback_or_die "$@"
 fi
 if [ ! -s "$_script" ]; then
-  echo "sharedserver: the downloaded installer was empty (from $_url)." >&2
+  echo "${SS_LABEL}: the downloaded installer was empty (from $_url)." >&2
   _fallback_or_die "$@"
 fi
 
@@ -214,14 +238,14 @@ if ! command -v sha256sum >/dev/null 2>&1; then
     PATH="$_lockdir:$PATH"
     export PATH
   else
-    echo "sharedserver: refusing to install — neither sha256sum nor shasum is available," >&2
+    echo "${SS_LABEL}: refusing to install — neither sha256sum nor shasum is available," >&2
     echo "  so the download could not be checksum-verified." >&2
     _fallback_or_die "$@"
   fi
 fi
 
 if ! sh "$_script" >&2; then
-  echo "sharedserver: the installer ran but failed (from $_url)." >&2
+  echo "${SS_LABEL}: the installer ran but failed (from $_url)." >&2
   _fallback_or_die "$@"
 fi
 
@@ -231,7 +255,7 @@ if _found="$(_probe)"; then
   _exec "$_found" "$@"
 fi
 
-echo "sharedserver: install reported success but no binary was found afterwards." >&2
+echo "${SS_LABEL}: install reported success but no binary was found afterwards." >&2
 echo "  Looked in: \$SHAREDSERVER_BIN, PATH, ~/.cargo/bin, ~/.local/bin," >&2
 echo "             /opt/homebrew/bin, /usr/local/bin" >&2
 _fallback_or_die "$@"

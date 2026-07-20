@@ -37,10 +37,17 @@ config="$(_resolve_config)" || exit 0
 
 ss_bin="${CLAUDE_PLUGIN_ROOT}/bin/sharedserver"
 
+# Exiting silently here leaks a reference: `use` attached this session and only
+# `unuse` detaches it, so a missing tool leaves the refcount high and the server alive
+# past its grace period. sharedserver's dead-client poller reclaims it within ~5s of
+# the session dying, so this self-corrects — but it should still be traceable, hence
+# stderr. No systemMessage: SessionEnd has no payload channel to carry one.
 if ! command -v jq >/dev/null 2>&1; then
+  echo "sharedserver: jq not found; cannot detach this session (the dead-client poller will reclaim it)" >&2
   exit 0
 fi
 if ! command -v envsubst >/dev/null 2>&1; then
+  echo "sharedserver: envsubst not found; cannot detach this session (the dead-client poller will reclaim it)" >&2
   exit 0
 fi
 
