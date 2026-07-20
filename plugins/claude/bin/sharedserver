@@ -111,6 +111,19 @@ if [ -n "${SHAREDSERVER_BIN:-}" ] && [ -x "$SHAREDSERVER_BIN" ]; then
   exec "$SHAREDSERVER_BIN" "$@"
 fi
 
+# $_ver was resolved at the top — it is both the floor and the pin.
+_base="https://github.com/georgeharker/sharedserver/releases/download"
+if [ -n "$SS_INSTALLER_URL" ]; then
+  _url="$SS_INSTALLER_URL"
+  _what="the latest release"
+elif [ -n "$_ver" ]; then
+  _url="$_base/v${_ver}/sharedserver-installer.sh"
+  _what="v${_ver}"
+else
+  _url="https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
+  _what="the latest release"
+fi
+
 _stale=""
 if _found="$(_probe)"; then
   _v="$(_version_of "$_found")"
@@ -123,7 +136,7 @@ if _found="$(_probe)"; then
   # rather run the old binary than nothing.
   _stale="$_found"
   echo "${SS_LABEL}: found ${_found} at version ${_v:-unknown}; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
-  echo "  Fetching the matching release so the plugin and binary stay in lockstep." >&2
+  echo "  Fetching ${_what} instead." >&2
   echo "  To keep your own build instead, set SHAREDSERVER_BIN=${_found}" >&2
 fi
 
@@ -189,16 +202,6 @@ if _found="$(_probe)"; then
   fi
 fi
 
-# $_ver was resolved at the top — it is both the floor and the pin.
-_base="https://github.com/georgeharker/sharedserver/releases/download"
-if [ -n "$SS_INSTALLER_URL" ]; then
-  _url="$SS_INSTALLER_URL"
-elif [ -n "$_ver" ]; then
-  _url="$_base/v${_ver}/sharedserver-installer.sh"
-else
-  _url="https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
-fi
-
 if ! command -v curl >/dev/null 2>&1; then
   echo "${SS_LABEL}: not found, and curl is unavailable to fetch it." >&2
   echo "  Install it with: cargo install sharedserver" >&2
@@ -209,7 +212,7 @@ fi
 # on the first run that finds nothing usable — so it needs no marker file to stay
 # one-time. It is informational, not a prompt: the install proceeds either way.
 if [ -z "$_stale" ]; then
-  echo "${SS_LABEL}: not found; fetching ${_ver:+v$_ver }from GitHub releases (one time)." >&2
+  echo "${SS_LABEL}: no usable sharedserver found; fetching ${_what} (one time)." >&2
   echo "  This needs no Rust toolchain. To use your own build instead, set SHAREDSERVER_BIN." >&2
 fi
 

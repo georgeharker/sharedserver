@@ -191,6 +191,22 @@ fi
 for i in "${!MANIFESTS[@]}"; do write_ver "${MANIFESTS[$i]}" "${TARGETS[$i]}" "$new"; done
 echo "updated ${#MANIFESTS[@]} manifests -> $new"
 
+# Refresh anything vendored from another repo, so a release can never ship a stale
+# copy. Repo-specific, hence a separate script; repos with nothing to vendor simply
+# do not have one. Failing here aborts the bump on purpose — silently skipping is how
+# you tag a release with a stale vendored file.
+# Contract: sync-vendored.sh prints one `VENDORED:<repo-relative-path>` line per file
+# it owns, and human-readable progress on stderr. Listing them explicitly beats
+# diffing the tree, which would also sweep up the manifests just written and any
+# unrelated untracked file.
+VENDORED=()
+if [ -x "$ROOT/scripts/sync-vendored.sh" ]; then
+  _sync_out="$("$ROOT/scripts/sync-vendored.sh")" || die "vendoring failed; refusing to bump"
+  while IFS= read -r f; do
+    [ -n "$f" ] && VENDORED+=("$ROOT/${f#VENDORED:}")
+  done < <(printf '%s\n' "$_sync_out" | grep '^VENDORED:' || true)
+fi
+
 # Keep any Cargo.lock next to a bumped Cargo.toml in sync (the crate's own
 # self-version entry, so a `--locked` build/publish doesn't fail).
 LOCKS=()
@@ -208,7 +224,7 @@ done
 
 [ "$do_commit" = 0 ] && { echo "files updated; skipped commit (--no-commit)"; exit 0; }
 
-git -C "$ROOT" add "${MANIFESTS[@]}" ${LOCKS+"${LOCKS[@]}"}
+git -C "$ROOT" add "${MANIFESTS[@]}" ${LOCKS+"${LOCKS[@]}"} ${VENDORED+"${VENDORED[@]}"}
 git -C "$ROOT" commit -m "release: $TAG — lockstep version across all manifests"
 echo "committed."
 
