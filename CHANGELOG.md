@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Prebuilt binaries for every release**, built by
+  [cargo-dist](https://opensource.axo.dev/cargo-dist/) for macOS and Linux on both
+  x86_64 and arm64, published to the GitHub release alongside a hosted
+  `sharedserver-installer.sh`. Installing no longer needs a Rust toolchain.
+  (No Windows target: the crate depends unconditionally on `nix`, which is
+  `#![cfg(unix)]`, so the POSIX process/signal/locking code does not compile there.)
+- **The Claude Code and OpenCode plugins fetch `sharedserver` themselves** when none
+  is present, using that installer — so installing either plugin is now sufficient
+  and `cargo install sharedserver` is optional. Both clients share one install lock,
+  so sessions starting simultaneously coordinate rather than race, and a failed
+  download falls back to whatever binary was already present rather than leaving you
+  with nothing.
+- `scripts/bump-version.sh` accepts semver prerelease versions (`0.6.4-alpha.1`).
+  Prerelease tags build and host binaries but **skip the crates.io publish**, giving
+  a dev-release channel where nothing irreversible happens.
 - Embedded the sibling editor plugins as plain in-tree directories under
   `plugins/`:
   [`opencode-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode)
@@ -19,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   submodules; they are now ordinary tracked directories.)
 
 ### Changed
+- **crates.io publishing is now gated on the binary build succeeding.** It runs as a
+  cargo-dist publish job (`.github/workflows/publish-crates.yml`, invoked via
+  `workflow_call`) instead of firing independently on the tag. Previously both raced
+  off the same tag, so a failed build could leave a published crate whose installer
+  URL 404s — and a publish is irreversible where a build failure is just a re-run.
+  The standalone `workflow_dispatch` manual-publish trigger is gone with it, and
+  `--no-verify` was dropped so the publish verifies what it ships.
+- The plugins prefer an installed `sharedserver` at or above the version they ship
+  against, and otherwise fetch the matching release, keeping plugin and binary in
+  lockstep. An explicit `SHAREDSERVER_BIN` is never overridden — it warns if the
+  version is older and honours it anyway.
+- Plugin `SessionStart` hook timeouts raised 30s → 300s, so a first-run download
+  cannot be killed part-way through an install.
 - Replaced the remaining ASCII diagrams with rendered SVG/PNG (editable SVG
   sources kept in `docs/`): the state machine and lifecycle timeline in the
   README, and the `:ServerStatus` window mockup in `docs/NEOVIM.md`.

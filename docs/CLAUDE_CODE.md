@@ -30,9 +30,10 @@ architecture, grace periods, and dead-client detection applies unchanged.
 ## Requirements
 
 - Claude Code with plugin support
-- A `sharedserver` binary reachable via `PATH`, `SHAREDSERVER_BIN`, or a
-  standard cargo/homebrew location (install with `cargo install sharedserver`,
-  or build from this repo's `rust/` directory)
+- `curl` — the plugin fetches a matching `sharedserver` on first use if one isn't
+  already present, so **no Rust toolchain is required**. Any binary reachable via
+  `PATH`, `SHAREDSERVER_BIN`, or a standard cargo/homebrew location is used instead
+  of downloading; `SHAREDSERVER_BIN` in particular is always honoured as-is
 - `jq` and `envsubst` on `PATH` — the hooks parse the config with `jq` and
   expand `${VAR}` references with `envsubst` (`brew install gettext` on macOS)
 

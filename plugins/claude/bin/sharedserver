@@ -1,31 +1,248 @@
 #!/usr/bin/env bash
-# Wrapper: resolves the sharedserver binary in standard locations.
-# Mirrors the resolution order documented in opencode-sharedserver's README:
+# Wrapper: resolves the sharedserver binary, fetching it if necessary.
 #   1. $SHAREDSERVER_BIN
 #   2. PATH (skipping ourselves to avoid recursion)
 #   3. ~/.cargo/bin, ~/.local/bin, /opt/homebrew/bin, /usr/local/bin
+#   4. download a pinned release via the cargo-dist installer  <-- the tail
+#
+# (4) is what makes a bare plugin install work with no Rust toolchain. Before it,
+# the only route was `cargo install sharedserver`, so "install the plugin" really
+# meant "install the plugin AND have cargo" — a much heavier ask than the uv the
+# sibling plugins already assume.
+#
+# Kept behaviourally identical to the OpenCode plugin's resolver
+# (plugins/opencode/src/index.ts): same ladder, same floor, same warning text, same
+# degrade-rather-than-die fallback. A user running both clients should not see two
+# different answers to "which sharedserver am I on, and why".
 
 set -eu
 
-if [[ -n "${SHAREDSERVER_BIN:-}" && -x "$SHAREDSERVER_BIN" ]]; then
+# --- Version floor ----------------------------------------------------------------
+# THE FLOOR IS THE PIN. Both answer the same question, so they are one number, read
+# from this plugin's own manifest: we would install v<plugin version>, so anything
+# already present is "new enough" exactly when it is >= that. Keeping them as two
+# constants meant they could disagree — accepting on PATH a version older than the
+# one we would otherwise have fetched, which is a guarantee that quietly isn't one.
+#
+# Because releases are lockstep (scripts/bump-version.sh writes the plugin manifest
+# and rust/Cargo.toml together), this is self-maintaining: bump the release and the
+# floor follows. Nothing to forget.
+#
+# Consequence worth knowing: a plugin bump does invalidate a PATH install one patch
+# behind, so that user takes one download. A NEWER install than ours still wins —
+# the test is >=, not ==, so `cargo install`ing ahead of the plugin is never undone.
+#
+# HARDCODED_FLOOR is only the backstop for an unreadable manifest. 0.5.0 is where the
+# PID-reuse guard landed (lockfile start stamps; Alive/Zombie/Gone liveness), which is
+# the oldest release these plugins are actually correct against: they refcount by
+# client PID, and without that guard a recycled PID reads as a live client and can
+# hold a server open indefinitely.
+HARDCODED_FLOOR="0.5.0"
+
+version_ge() { # version_ge A B -> success when dotted-numeric prefix of A >= B
+  local a b i x y
+  local IFS=.
+  read -r -a a <<<"${1%%[!0-9.]*}"
+  read -r -a b <<<"${2%%[!0-9.]*}"
+  for i in 0 1 2; do
+    x="${a[i]:-0}"; y="${b[i]:-0}"
+    ((10#${x:-0} > 10#${y:-0})) && return 0
+    ((10#${x:-0} < 10#${y:-0})) && return 1
+  done
+  return 0
+}
+
+_version_of() { # dotted version of a sharedserver command, or empty
+  "$1" --version 2>/dev/null | awk '{print $2}'
+}
+
+# Version to fetch. Pinned to THIS PLUGIN's version so the pair moves in lockstep
+# (scripts/bump-version.sh writes both) — derived from the manifest, never
+# duplicated as a constant here.
+_plugin_version() {
+  local pj="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/.claude-plugin/plugin.json"
+  [ -f "$pj" ] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.version // empty' <"$pj"
+  else
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pj" | head -1
+  fi
+}
+
+# The one number: what we would install, and therefore what we require.
+_ver="$(_plugin_version || true)"
+MIN_SHAREDSERVER_VERSION="${_ver:-$HARDCODED_FLOOR}"
+
+_probe() { # echo the first sharedserver found (ANY version), or nothing
+  if [ -n "${SHAREDSERVER_BIN:-}" ] && [ -x "$SHAREDSERVER_BIN" ]; then
+    printf '%s' "$SHAREDSERVER_BIN"; return 0
+  fi
+  local real
+  if real="$(command -v sharedserver 2>/dev/null)" && [ -x "$real" ] && [ "$real" != "$0" ]; then
+    printf '%s' "$real"; return 0
+  fi
+  local candidate
+  for candidate in \
+    "$HOME/.cargo/bin/sharedserver" \
+    "$HOME/.local/bin/sharedserver" \
+    "/opt/homebrew/bin/sharedserver" \
+    "/usr/local/bin/sharedserver"; do
+    if [ -x "$candidate" ]; then printf '%s' "$candidate"; return 0; fi
+  done
+  return 1
+}
+
+# An explicit SHAREDSERVER_BIN is never second-guessed: the user named a specific
+# binary, so silently downloading a different one would be the wrong answer to that.
+# Warn if it is old, then honour it anyway.
+if [ -n "${SHAREDSERVER_BIN:-}" ] && [ -x "$SHAREDSERVER_BIN" ]; then
+  _v="$(_version_of "$SHAREDSERVER_BIN")"
+  if [ -n "$_v" ] && ! version_ge "$_v" "$MIN_SHAREDSERVER_VERSION"; then
+    echo "sharedserver: SHAREDSERVER_BIN points at version $_v; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
+    echo "  Using it anyway because you set it explicitly. Upgrade with: cargo install sharedserver" >&2
+  fi
   exec "$SHAREDSERVER_BIN" "$@"
 fi
 
-if real="$(command -v sharedserver 2>/dev/null)" && [[ -x "$real" && "$real" != "$0" ]]; then
-  exec "$real" "$@"
+_stale=""
+if _found="$(_probe)"; then
+  _v="$(_version_of "$_found")"
+  if [ -n "$_v" ] && version_ge "$_v" "$MIN_SHAREDSERVER_VERSION"; then
+    exec "$_found" "$@"
+  fi
+  # Too old (or unreadable — pre-0.5 releases still answered --version, so empty
+  # means something unexpected, and we treat that as suspect too). Fall through to
+  # fetch a known-good release, but REMEMBER it: if the download fails we would
+  # rather run the old binary than nothing.
+  _stale="$_found"
+  echo "sharedserver: found ${_found} at version ${_v:-unknown}; this plugin ships against ${MIN_SHAREDSERVER_VERSION}." >&2
+  echo "  Fetching the matching release so the plugin and binary stay in lockstep." >&2
+  echo "  To keep your own build instead, set SHAREDSERVER_BIN=${_found}" >&2
 fi
 
-for candidate in \
-  "$HOME/.cargo/bin/sharedserver" \
-  "$HOME/.local/bin/sharedserver" \
-  "/opt/homebrew/bin/sharedserver" \
-  "/usr/local/bin/sharedserver"; do
-  if [[ -x "$candidate" ]]; then
-    exec "$candidate" "$@"
-  fi
-done
+# --- Fetch a pinned release --------------------------------------------------------
+#
+# CONCURRENCY. This shim runs from a SessionStart hook, and people open several
+# sessions at once. Without a lock, N sessions would all miss the probe and all run
+# the installer against the same target path — the installer is not written for
+# concurrent invocation, and a half-written binary is worse than none. `mkdir` is the
+# lock primitive because it is atomic on every filesystem that matters and needs no
+# flock/lockfile utility; the PID inside is for diagnosis only, never for liveness.
+#
+# The loser of the race does NOT install. It waits for the winner and re-probes.
+_lockdir="${TMPDIR:-/tmp}/.sharedserver-install.lock"
+_have_lock=0
+_cleanup() { [ "$_have_lock" = 1 ] && rm -rf "$_lockdir" 2>/dev/null || true; }
+trap _cleanup EXIT INT TERM
 
-echo "claude-sharedserver: sharedserver binary not found." >&2
-echo "  Install with: cargo install sharedserver" >&2
-echo "  Or set SHAREDSERVER_BIN to a custom path." >&2
-exit 127
+# ALWAYS exec through this once the lock may be held. `exec` replaces the process
+# image, so the EXIT trap never runs — a bare `exec` while holding the lock leaks the
+# directory permanently, and every later invocation then burns its full 20s wait and
+# reports a phantom "another process is installing". (Observed, not theorised: an
+# earlier test left /tmp/.sharedserver-install.lock behind and poisoned the next run.)
+_exec() {
+  _cleanup
+  exec "$@"
+}
+
+_fallback_or_die() { # use the stale binary if we have one, else fail
+  if [ -n "$_stale" ]; then
+    echo "  Continuing with the existing ${_stale} despite its version." >&2
+    _exec "$_stale" "$@"
+  fi
+  _cleanup
+  exit 127
+}
+
+if mkdir "$_lockdir" 2>/dev/null; then
+  _have_lock=1
+  printf '%s' "$$" >"$_lockdir/pid" 2>/dev/null || true
+else
+  # Someone else is installing. Wait, then re-probe — bounded, because a
+  # SessionStart hook that blocks forever is worse than one that degrades.
+  _waited=0
+  while [ -d "$_lockdir" ] && [ "$_waited" -lt 20 ]; do
+    sleep 1
+    _waited=$((_waited + 1))
+  done
+  if _found="$(_probe)"; then
+    _v="$(_version_of "$_found")"
+    if [ -n "$_v" ] && version_ge "$_v" "$MIN_SHAREDSERVER_VERSION"; then
+      _exec "$_found" "$@"
+    fi
+  fi
+  if ! mkdir "$_lockdir" 2>/dev/null; then
+    echo "sharedserver: another process is installing sharedserver and did not finish." >&2
+    echo "  If this persists, remove the stale lock: rm -rf $_lockdir" >&2
+    _fallback_or_die "$@"
+  fi
+  _have_lock=1
+fi
+
+# Re-probe under the lock: the winner may have finished between our failed mkdir
+# and acquiring it. Without this the loser reinstalls what it just waited for.
+if _found="$(_probe)"; then
+  _v="$(_version_of "$_found")"
+  if [ -n "$_v" ] && version_ge "$_v" "$MIN_SHAREDSERVER_VERSION"; then
+    _exec "$_found" "$@"
+  fi
+fi
+
+# $_ver was resolved at the top — it is both the floor and the pin.
+_base="https://github.com/georgeharker/sharedserver/releases/download"
+if [ -n "$_ver" ]; then
+  _url="$_base/v${_ver}/sharedserver-installer.sh"
+else
+  _url="https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh"
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "sharedserver: not found, and curl is unavailable to fetch it." >&2
+  echo "  Install it with: cargo install sharedserver" >&2
+  _fallback_or_die "$@"
+fi
+
+# Announce, once. This only ever prints when we are ABOUT to install — i.e. exactly
+# on the first run that finds nothing usable — so it needs no marker file to stay
+# one-time. It is informational, not a prompt: the install proceeds either way.
+if [ -z "$_stale" ]; then
+  echo "sharedserver: not found; fetching ${_ver:+v$_ver }from GitHub releases (one time)." >&2
+  echo "  This needs no Rust toolchain. To use your own build instead, set SHAREDSERVER_BIN." >&2
+fi
+
+# Download to a file, THEN run it — deliberately not `curl … | sh`.
+#
+# In a pipeline the exit status is the LAST command's, so `curl -f … | sh` reports
+# SUCCESS when curl 404s: curl fails, emits nothing, sh reads empty input and exits
+# 0. That is not hypothetical — it is what this script did on its first test, against
+# a tag whose release assets did not exist yet, and it misreported the failure as
+# "install succeeded but no binary appeared". Staging the script also means a
+# truncated download fails the size check below instead of being partially executed.
+#
+# --proto '=https' --tlsv1.2 mirror cargo-dist's own documented install line: refuse
+# to be redirected off TLS, and refuse ancient TLS.
+_script="$_lockdir/installer.sh"
+if ! curl --proto '=https' --tlsv1.2 -LsSf "$_url" -o "$_script" 2>/dev/null; then
+  echo "sharedserver: could not download the installer from $_url" >&2
+  echo "  (a release for v${_ver:-?} may not exist yet, or the network is unavailable)" >&2
+  _fallback_or_die "$@"
+fi
+if [ ! -s "$_script" ]; then
+  echo "sharedserver: the downloaded installer was empty (from $_url)." >&2
+  _fallback_or_die "$@"
+fi
+if ! sh "$_script" >&2; then
+  echo "sharedserver: the installer ran but failed (from $_url)." >&2
+  _fallback_or_die "$@"
+fi
+
+# The installer lands in ~/.cargo/bin or ~/.local/bin, both already in the probe
+# list — so re-probing is how we find what it just wrote, rather than assuming a path.
+if _found="$(_probe)"; then
+  _exec "$_found" "$@"
+fi
+
+echo "sharedserver: install reported success but no binary was found afterwards." >&2
+echo "  Looked in: \$SHAREDSERVER_BIN, PATH, ~/.cargo/bin, ~/.local/bin," >&2
+echo "             /opt/homebrew/bin, /usr/local/bin" >&2
+_fallback_or_die "$@"

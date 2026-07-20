@@ -22,15 +22,32 @@ state in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or
 `/tmp/sharedserver/`). This plugin only ever speaks to that CLI; it doesn't
 manage processes directly.
 
-Install it with cargo (requires a Rust toolchain — see
-[rustup.rs](https://rustup.rs/) if you don't have one):
+**You do not need to install it.** On first use this plugin fetches a matching
+`sharedserver` from GitHub releases if one isn't already present — prebuilt, so no
+Rust toolchain is involved. It only does this when nothing usable is found; any
+`sharedserver` already on `PATH` (or in `~/.cargo/bin`, `~/.local/bin`,
+`/opt/homebrew/bin`, `/usr/local/bin`) is used as-is, and an explicit `binary`
+option or `SHAREDSERVER_BIN` is always honoured without being second-guessed.
+
+The version fetched matches this plugin's own version, so the pair stay in lockstep.
+If an installed binary is older, the plugin says so and fetches the matching release;
+if that download fails it carries on with the older binary rather than leaving you
+with nothing. This is identical to the Claude Code plugin's behaviour — the two even
+share an install lock, so starting both at once won't race.
+
+To install it yourself anyway:
 
 ```bash
+# prebuilt, no toolchain
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh | sh
+
+# or, with cargo (see rustup.rs if you have no toolchain)
 cargo install sharedserver
 ```
 
-By default this drops the binary at `~/.cargo/bin/sharedserver`, which the
-plugin's binary-resolution order already covers. Verify with:
+Cargo drops the binary at `~/.cargo/bin/sharedserver`, which the plugin's
+binary-resolution order already covers. Verify with:
 
 ```bash
 sharedserver --version
@@ -58,9 +75,10 @@ down cleanly when it exits, without you having to start them manually.
 ## Requirements
 
 - OpenCode (with plugin support)
-- A Rust toolchain to install `sharedserver` (`cargo install sharedserver`),
-  or a prebuilt `sharedserver` binary reachable via `PATH`, the `binary`
-  option, or the `SHAREDSERVER_BIN` environment variable
+- `curl`, for the one-time fetch of `sharedserver` on first use — **nothing else**.
+  A Rust toolchain is *not* required. If you'd rather supply the binary yourself,
+  any `sharedserver` reachable via `PATH`, the `binary` option, or the
+  `SHAREDSERVER_BIN` environment variable is used instead of downloading.
 
 ## Install
 

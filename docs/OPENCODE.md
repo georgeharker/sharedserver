@@ -34,9 +34,11 @@ unchanged.
 ## Requirements
 
 - OpenCode (with plugin support)
-- A `sharedserver` binary — install with `cargo install sharedserver`, or point
-  the plugin's `binary` option / `SHAREDSERVER_BIN` env var at a build from this
-  repo's `rust/` directory.
+- `curl` — the plugin fetches a matching `sharedserver` on first use if one isn't
+  already present, so **no Rust toolchain is required**. To supply your own instead,
+  install it (`cargo install sharedserver`, or the prebuilt installer script) or
+  point the plugin's `binary` option / `SHAREDSERVER_BIN` env var at a build from
+  this repo's `rust/` directory.
 
 ## Install
 

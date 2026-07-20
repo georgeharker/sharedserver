@@ -1,0 +1,30 @@
+[workspace]
+members = ["cargo:rust"]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# Run the crates.io publish as a cargo-dist publish job, so it fires only after
+# every target binary has built. See .github/workflows/publish-crates.yml for why
+# the ordering matters (irreversible publish vs. re-runnable build).
+publish-jobs = ["./publish-crates"]
+# The installers to generate for each app.
+# `shell` is load-bearing, not cosmetic: it publishes the hosted installer script
+# that the Claude/OpenCode plugin shims curl when no sharedserver is on PATH, so a
+# plugin install needs no Rust toolchain. Dropping it silently breaks that fallback.
+installers = ["shell"]
+# Target platforms to build apps for (Rust target-triple syntax).
+#
+# NO WINDOWS. cargo-dist's default list includes x86_64-pc-windows-msvc, but this
+# crate depends unconditionally on `nix` (a POSIX wrapper whose own supported-target
+# list is Unix-only) and `libc`. Verified with `cargo tree --target
+# x86_64-pc-windows-msvc`: nix resolves INTO the Windows tree rather than being
+# gated out, so the build would attempt to compile it and fail. That matters more
+# than it looks — crates.io publishing is gated on every target building, so one
+# impossible target would block the whole release, not just skip an artifact.
+# Windows support would mean target-gating nix behind cfg(unix) and writing a
+# Windows process-management path first.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]

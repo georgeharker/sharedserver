@@ -7,7 +7,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/use-servers.sh",
-            "timeout": 30
+            "_comment_timeout": "300, not 30: on a first run bin/sharedserver may download a release (cold fetch + install), and under a concurrent-session install race it waits up to 20s for the lock before re-probing. 30s could kill the hook mid-install, which is the one moment a partial write does damage. Steady state is unaffected — the hook returns in well under a second once a binary exists.",
+            "timeout": 300
           }
         ]
       }

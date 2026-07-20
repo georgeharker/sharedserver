@@ -19,9 +19,23 @@ One server process, shared across any number of clients. When the last client di
 
 ### Install
 
+Prebuilt binaries — no Rust toolchain needed (macOS and Linux, x86_64 and arm64):
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh | sh
+```
+
+With cargo, if you have a toolchain:
+
 ```bash
 cargo install sharedserver
 ```
+
+> **Using the Claude Code or OpenCode plugin?** You don't need to install anything
+> by hand. Those plugins fetch a matching `sharedserver` on first use when one
+> isn't already present — see [Claude Code](docs/CLAUDE_CODE.md) and
+> [OpenCode](docs/OPENCODE.md).
 
 Or build from source:
 

@@ -10,10 +10,28 @@ This plugin is the Claude Code counterpart to [`opencode-sharedserver`](https://
 
 [`sharedserver`](https://github.com/georgeharker/sharedserver) ([crates.io](https://crates.io/crates/sharedserver)) is a small Rust CLI that runs a long-lived process on behalf of several clients with reference counting, a configurable grace period after the last client detaches, and a watcher that reaps dead clients automatically. Verbs: `use`, `unuse`, `list`, `info`, `check`. State lives in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or `/tmp/sharedserver/`). This plugin only ever speaks to that CLI; it doesn't manage processes directly.
 
-Install with cargo:
+**You do not need to install it.** On first use this plugin fetches a matching
+`sharedserver` from GitHub releases if one isn't already present — prebuilt, so no
+Rust toolchain is involved. It only does this when nothing usable is found; any
+`sharedserver` already on `PATH` (or in `~/.cargo/bin`, `~/.local/bin`,
+`/opt/homebrew/bin`, `/usr/local/bin`) is used as-is, and an explicit
+`SHAREDSERVER_BIN` is always honoured without being second-guessed.
+
+The version fetched matches this plugin's own version, so the pair stay in lockstep.
+If an installed binary is older than that, the plugin says so and fetches the
+matching release; if that download fails it carries on with the older binary rather
+than leaving you with nothing.
+
+To install it yourself anyway:
 
 ```sh
+# prebuilt, no toolchain
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/georgeharker/sharedserver/releases/latest/download/sharedserver-installer.sh | sh
+
+# or, with cargo
 cargo install sharedserver
+
 sharedserver --version
 sharedserver list           # "(no servers)" on a fresh install
 ```

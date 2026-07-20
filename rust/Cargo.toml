@@ -34,3 +34,8 @@ colored = "2.1"
 
 [dev-dependencies]
 serial_test = "3.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

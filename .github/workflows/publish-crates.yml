@@ -1,0 +1,46 @@
+name: Publish to crates.io
+#
+# Invoked BY cargo-dist's release.yml as a custom publish job (`publish-jobs =
+# ["./publish-crates"]` in dist-workspace.toml), never on its own trigger.
+#
+# WHY: this used to fire independently on the `v*` tag, racing the binary build.
+# A crates.io publish is effectively irreversible — you can yank, not unpublish —
+# whereas a binary build failing on one target is just a re-run. Firing both off
+# the same tag meant the bad outcome was "crate published, no binaries", leaving
+# the hosted installer URL a 404 — which is precisely what the plugin shims curl
+# on every session start. Running as a cargo-dist publish job inverts that: every
+# target builds first, and if any fails the crate simply doesn't publish.
+#
+# So do NOT reintroduce a `push: tags:` trigger here. That would restore the race
+# this file exists to remove, and it would do so silently — nothing fails until a
+# release happens to build badly.
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        # cargo-dist passes its release plan to EVERY publish job it calls. Unused
+        # here, but it must be declared: an undeclared input makes the whole
+        # workflow invalid, which surfaces only when a release actually runs.
+        description: cargo-dist release plan (JSON)
+        required: true
+        type: string
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        description: crates.io publish token
+        required: true
+
+jobs:
+  publish:
+    name: Publish sharedserver
+    runs-on: ubuntu-latest
+    environment: crates
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Publish to crates.io
+        uses: katyo/publish-crates@v2
+        with:
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          path: ./rust
