@@ -2,7 +2,7 @@
 // See README.md for installation and configuration.
 
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve as resolvePath } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -225,7 +225,24 @@ function installPinned(env: NodeJS.ProcessEnv, log?: LogFn, toast?: ToastFn): st
             log?.("warn", `the downloaded sharedserver installer was empty (from ${url})`)
             return undefined
         }
-        const run = spawnSync("sh", [script], { env, stdio: "ignore" })
+
+        // Make sure the installer can actually verify what it downloads. cargo-dist
+        // embeds the expected sha256 but looks up only `sha256sum` and returns SUCCESS
+        // when it is missing — so on macOS (which ships `shasum -a 256`) verification is
+        // silently skipped. Put a sha256sum on PATH rather than patching their script;
+        // `shasum -a 256 -b` output is byte-identical. With neither, refuse.
+        let runEnv = env
+        if (spawnSync("sh", ["-c", "command -v sha256sum"], { stdio: "ignore" }).status !== 0) {
+            if (spawnSync("sh", ["-c", "command -v shasum"], { stdio: "ignore" }).status !== 0) {
+                log?.("warn", "refusing to install sharedserver — neither sha256sum nor shasum is available, so the download could not be checksum-verified")
+                return undefined
+            }
+            const shim = join(lockdir, "sha256sum")
+            writeFileSync(shim, '#!/bin/sh\nexec shasum -a 256 "$@"\n', { mode: 0o755 })
+            runEnv = { ...env, PATH: `${lockdir}:${env.PATH ?? ""}` }
+        }
+
+        const run = spawnSync("sh", [script], { env: runEnv, stdio: "ignore" })
         if (run.error || run.status !== 0) {
             log?.("warn", `the sharedserver installer ran but failed (from ${url})`)
             return undefined

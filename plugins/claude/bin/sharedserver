@@ -203,6 +203,30 @@ if [ ! -s "$_script" ]; then
   echo "sharedserver: the downloaded installer was empty (from $_url)." >&2
   _fallback_or_die "$@"
 fi
+
+# Make sure the installer can actually verify what it downloads.
+#
+# cargo-dist embeds the expected sha256 in the installer, but looks up ONLY
+# `sha256sum` and — critically — `return 0`s when it is missing, so verification is
+# skipped and the install still succeeds. macOS has no sha256sum (it ships
+# `shasum -a 256`), so on a stock Mac we would execute an unverified binary.
+#
+# Put a sha256sum on PATH rather than patching their script: `shasum -a 256 -b` is
+# byte-identical in output, so their own check finds a tool and verifies properly.
+# With neither available we refuse instead of installing unverified.
+if ! command -v sha256sum >/dev/null 2>&1; then
+  if command -v shasum >/dev/null 2>&1; then
+    printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' >"$_lockdir/sha256sum"
+    chmod +x "$_lockdir/sha256sum"
+    PATH="$_lockdir:$PATH"
+    export PATH
+  else
+    echo "sharedserver: refusing to install — neither sha256sum nor shasum is available," >&2
+    echo "  so the download could not be checksum-verified." >&2
+    _fallback_or_die "$@"
+  fi
+fi
+
 if ! sh "$_script" >&2; then
   echo "sharedserver: the installer ran but failed (from $_url)." >&2
   _fallback_or_die "$@"
