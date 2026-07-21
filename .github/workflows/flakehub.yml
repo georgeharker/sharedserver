@@ -3,9 +3,15 @@ name: flakehub
 # Publishes the flake to FlakeHub (https://flakehub.com/flake/georgeharker/sharedserver).
 # Authenticates via GitHub OIDC (no token/secret).
 #
-#   * push a `v*` tag  -> a semver release (same tags that publish to crates.io, publish.yml)
+#   * push a `v*` tag  -> a semver release (the same tags release.yml builds from)
 #   * run manually     -> a rolling release from the current branch HEAD
 #                         (Actions -> flakehub -> Run workflow)
+#
+# Deliberately NOT gated on release.yml's binary build, unlike the crates.io and npm
+# publishes. Those ship things that point at the release assets, so publishing before
+# the binaries exist would leave a 404. The flake builds from source (`src = ./rust`)
+# and never touches those assets, so gating it would withhold a perfectly good flake
+# over a cross-compile failure that cannot affect nix users.
 on:
   push:
     tags: ["v*"]
@@ -17,6 +23,11 @@ permissions:
 
 jobs:
   publish:
+    # Skip prerelease tags. They exist to exercise the binary build and the
+    # crates.io/npm publish paths; the flake builds from source, so a prerelease tests
+    # nothing here and just leaves a permanent alpha on FlakeHub — which is how
+    # 0.6.4-alpha.1..5 ended up published. Manual runs are unaffected (rolling).
+    if: ${{ github.ref_type != 'tag' || !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
