@@ -1,0 +1,52 @@
+{
+    "name": "@geohar/pi-sharedserver",
+    "version": "0.6.8",
+    "description": "Pi extension: manage shared backend processes via the sharedserver CLI.",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "pi": {
+        "extensions": ["./src/index.ts"]
+    },
+    "files": [
+        "src",
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist",
+        "typecheck": "tsc --noEmit",
+        "prepublishOnly": "npm run clean && npm run build"
+    },
+    "keywords": [
+        "pi",
+        "pi-extension",
+        "pi-mono",
+        "sharedserver",
+        "process-manager",
+        "plugin"
+    ],
+    "author": "George Harker <george@georgeharker.com>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/georgeharker/sharedserver.git",
+        "directory": "plugins/pi"
+    },
+    "bugs": {
+        "url": "https://github.com/georgeharker/sharedserver/issues"
+    },
+    "homepage": "https://github.com/georgeharker/sharedserver/tree/main/plugins/pi#readme",
+    "publishConfig": {
+        "access": "public"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "^5.6.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

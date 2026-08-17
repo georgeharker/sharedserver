@@ -10,7 +10,7 @@ ci = "github"
 # Run the crates.io publish as a cargo-dist publish job, so it fires only after
 # every target binary has built. See .github/workflows/publish-crates.yml for why
 # the ordering matters (irreversible publish vs. re-runnable build).
-publish-jobs = ["./publish-crates", "./release-opencode-plugin"]
+publish-jobs = ["./publish-crates", "./release-opencode-plugin", "./release-pi-plugin"]
 # Publish prereleases to crates.io rather than skipping them — otherwise the publish
 # wiring is never exercised until a real, irreversible release. Cost is a permanently
 # claimed prerelease version; cargo won't resolve one unless a range opts in.
