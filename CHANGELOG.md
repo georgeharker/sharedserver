@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **On-demand commands / status surface across hosts.** Each host gets the
+  control + introspection it can support: **Pi** — a `/sharedserver` slash command
+  (`status`, `up <profile>`, `down <profile>`, `config show`, `config lookup
+  <name>`, with autocomplete); **Neovim** — `:ServerUp [profile]` / `:ServerDown
+  [profile]` alongside the existing `:ServerStatus`/`:ServerList`; **OpenCode** — a
+  read-only `sharedserver_status` tool the agent can call (OpenCode plugins can't
+  register user slash commands); **Claude Code** — read-only `status`,
+  `config-show`, `config-lookup` slash commands. Config *mutations* are kept off
+  the slash surface everywhere, and profile `up`/`down` are only offered where the
+  host is a long-lived process that can hold the reference (Pi, Neovim) — Claude
+  and OpenCode stay read-only because a transient command / agent context can't.
 - **`config` self-define verbs.** Programs (or you) can register server defs into
   `servers.json` as scoped, atomic JSON edits instead of hand-editing the file:
   `config register --scope <id> <name> [--profile P]... [--if-absent] -- <cmd>`

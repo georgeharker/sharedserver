@@ -355,6 +355,18 @@ sharedserver info <name>          # add --json for machine-readable
 sharedserver admin doctor         # validate state, clean stale lockfiles
 ```
 
+## Status tool
+
+The plugin registers a read-only `sharedserver_status` tool that the agent can
+call to report what sharedserver is running (servers, PIDs, refcounts). It is
+**read-only** — it never starts or stops anything.
+
+OpenCode's plugin API doesn't let a plugin register user *slash* commands (only
+model-callable tools), and bringing profiles up/down is a user/lifecycle action
+rather than the model's to trigger, so only status is exposed. Use `sharedserver
+up --profile <p>` / `down` directly, or the config's `profiles`, for on-demand
+control.
+
 ## License
 
 MIT

@@ -128,6 +128,23 @@ already have needs to change.
 
 No servers configured is a normal, quiet state — an unconfigured install starts cleanly.
 
+## Commands
+
+The extension registers a `/sharedserver` slash command for on-demand control and
+introspection beyond the automatic host-profile lifecycle:
+
+| Command | Does |
+|---------|------|
+| `/sharedserver status` | Show running servers |
+| `/sharedserver up <profile>` | Bring up a (task) profile on demand |
+| `/sharedserver down <profile>` | Release it |
+| `/sharedserver config show` | Print the whole config |
+| `/sharedserver config lookup <name>` | One server's def + the profiles it's in |
+
+Verbs and the `config` sub-verbs autocomplete. Config *mutations*
+(`register`/`unregister`) are intentionally not exposed as slash commands — those
+are install-time edits, not in-session actions.
+
 ## License
 
 MIT

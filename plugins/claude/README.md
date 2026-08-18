@@ -239,6 +239,24 @@ Common issues:
 - **Hook fires but server doesn't start**: check `logFile` if set; otherwise run the command standalone to see what it complains about.
 - **Stale lockfiles after a crash**: `sharedserver admin doctor` to validate, `sharedserver admin kill <name>` as a last resort.
 
+## Slash commands
+
+The plugin ships read-only slash commands (under `commands/`) for introspection:
+
+| Command | Does |
+|---------|------|
+| `status` | Show running servers (`sharedserver list`) |
+| `config-show` | Print the whole config (servers + profiles) |
+| `config-lookup <name>` | One server's def + the profiles it's in |
+
+These are **read-only** by design. Profile `up`/`down` aren't offered as slash
+commands here: a Claude command runs as a transient process, so the reference it
+would take dies immediately and the servers would fall straight into their grace
+period. Bringing profiles up/down belongs to the session lifecycle (handled
+automatically for the `claude` profile) or to a long-lived host (Neovim's
+`:ServerUp`/`:ServerDown`, the Pi `/sharedserver up|down`). Run `sharedserver up
+--profile <p>` directly if you need it in a shell.
+
 ## License
 
 MIT

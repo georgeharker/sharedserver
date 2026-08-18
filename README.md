@@ -407,6 +407,8 @@ require("sharedserver").setup({
 | `:ServerStatus [name]` | Show status in floating window |
 | `:ServerList` | List all registered servers |
 | `:ServerStopAll` | Stop all servers |
+| `:ServerUp [profile]` | Bring up a [profile](#profiles) (defaults to the configured `profile`) |
+| `:ServerDown [profile]` | Release a profile |
 
 `:ServerStatus` shows a floating window with status indicators:
 - `●` Running (active or in grace period)
