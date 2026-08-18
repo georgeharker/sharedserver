@@ -1,14 +1,36 @@
 use colored::*;
 use sharedserver::core::ServerState;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+
+/// When set, the stdout printers below become no-ops. `up`/`down --json` set this
+/// so their sub-operations (which print "Started server …" etc.) can't corrupt
+/// the single JSON object those commands emit on stdout. Errors still go to
+/// stderr, which never shares the JSON channel.
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Suppress the stdout printers (`print_success`/`print_warning`/`print_info`).
+pub fn set_quiet(quiet: bool) {
+    QUIET.store(quiet, Ordering::Relaxed);
+}
+
+fn is_quiet() -> bool {
+    QUIET.load(Ordering::Relaxed)
+}
 
 /// Print a success message with a green checkmark
 pub fn print_success(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     println!("{} {}", "✓".green().bold(), msg);
 }
 
 /// Print a warning message with a yellow warning symbol
 pub fn print_warning(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     println!("{} {}", "⚠".yellow().bold(), msg);
 }
 
@@ -19,6 +41,9 @@ pub fn print_error(msg: &str) {
 
 /// Print an info message with a blue info symbol
 pub fn print_info(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     println!("{} {}", "ℹ".blue().bold(), msg);
 }
 

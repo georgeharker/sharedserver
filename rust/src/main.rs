@@ -98,6 +98,10 @@ enum Commands {
         /// no warning). Plugins asking for their own host profile pass this.
         #[arg(long)]
         profile_optional: bool,
+        /// Emit a single JSON object (profile, per-server outcome, warnings) and
+        /// nothing else on stdout — for programmatic callers.
+        #[arg(long)]
+        json: bool,
     },
     /// Release every server in a profile (the inverse of `up`).
     Down {
@@ -116,6 +120,9 @@ enum Commands {
         /// Treat a missing profile as normal (no warning); pair with `up`.
         #[arg(long)]
         profile_optional: bool,
+        /// Emit a single JSON object and nothing else on stdout.
+        #[arg(long)]
+        json: bool,
     },
     /// List all servers
     List {
@@ -250,6 +257,7 @@ fn main() -> Result<()> {
             config,
             cwd,
             profile_optional,
+            json,
         } => commands::up::execute(
             &profile,
             pid,
@@ -257,6 +265,7 @@ fn main() -> Result<()> {
             config.as_deref(),
             cwd.as_deref(),
             profile_optional,
+            json,
         ),
         Commands::Down {
             profile,
@@ -264,12 +273,14 @@ fn main() -> Result<()> {
             config,
             cwd,
             profile_optional,
+            json,
         } => commands::down::execute(
             &profile,
             pid,
             config.as_deref(),
             cwd.as_deref(),
             profile_optional,
+            json,
         ),
         Commands::List { json } => commands::list::execute(json),
         Commands::Info { name, json } => commands::info::execute(&name, json),
