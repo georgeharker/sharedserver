@@ -18,12 +18,15 @@ guide](CLAUDE_CODE.md).
 
 ## How it works
 
-When OpenCode starts, the plugin attaches to (or starts) each configured server
-with `sharedserver use`. When OpenCode exits — on `exit`, `SIGINT`, `SIGTERM`,
-or `SIGHUP` — it detaches with `sharedserver unuse`. Because `sharedserver` is
-reference-counted, multiple OpenCode instances (and any shells, scripts, or
-Neovim instances using the same name) share a single backend process. The
-server survives OpenCode restarts inside its grace period and shuts down
+When OpenCode starts, the plugin brings up this host's profile with `sharedserver
+up --profile opencode --json`; when OpenCode exits — on `exit`, `SIGINT`,
+`SIGTERM`, or `SIGHUP` — it releases it with `sharedserver down`. The binary reads
+the config, expands `${VAR}`, and selects the servers itself; the plugin
+health-checks what the JSON report says came up, and inline `servers` are
+materialized to a temp file so they flow through the binary too. Because
+`sharedserver` is reference-counted, multiple OpenCode instances (and any shells,
+scripts, or Neovim instances using the same name) share a single backend process.
+The server survives OpenCode restarts inside its grace period and shuts down
 automatically when the last client leaves.
 
 The plugin only ever speaks to the `sharedserver` CLI; it does not manage
@@ -92,8 +95,9 @@ git add plugins/opencode && git commit -m "feat(opencode): ..."
 The plugin README covers the parts not repeated here:
 
 - Full per-server option table (`command`, `args`, `env`, `gracePeriod`,
-  `logFile`, `metadata`, `lazy`) and binary-resolution order.
-- The exact `sharedserver use` / `unuse` invocations the plugin runs.
+  `logFile`, `metadata`, `lazy`), profiles, and binary-resolution order.
+- The exact `sharedserver up` / `down` invocations the plugin runs, and how
+  inline `servers` are materialized to a temp file.
 - TUI toast behavior and the post-attach health check.
 - Structured-log line shapes for diagnosing startup problems.
 

@@ -3,12 +3,13 @@
 An [OpenCode](https://opencode.ai) plugin that manages shared backend processes
 through the [`sharedserver`](https://github.com/georgeharker/sharedserver) CLI.
 
-When OpenCode starts, the plugin attaches to (or starts) each configured
-server with `sharedserver use`. When OpenCode exits, it detaches with
-`sharedserver unuse`. Because `sharedserver` is reference-counted, multiple
-OpenCode instances — or other tools using the same name — share a single
-backend process. The server survives opencode restarts inside its grace period
-and shuts down automatically when the last client leaves.
+When OpenCode starts, the plugin brings up this host's profile with
+`sharedserver up --profile opencode`. When OpenCode exits, it releases it with
+`sharedserver down`. The `sharedserver` binary reads the config, expands
+`${VAR}`, and selects the profile's servers itself. Because `sharedserver` is
+reference-counted, multiple OpenCode instances — or other tools using the same
+name — share a single backend process. The server survives opencode restarts
+inside its grace period and shuts down automatically when the last client leaves.
 
 ## About sharedserver
 
@@ -17,7 +18,8 @@ and shuts down automatically when the last client leaves.
 that runs a long-lived process on behalf of several clients with reference
 counting, a configurable grace period after the last client detaches, and a
 watcher that reaps dead clients automatically. It exposes a tiny verb
-surface — `use`, `unuse`, `list`, `info`, `check` — and stores per-server
+surface — `use`, `unuse`, `up`, `down`, `list`, `info`, `check` (`up`/`down`
+bring a whole **profile** up or down) — and stores per-server
 state in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or
 `/tmp/sharedserver/`). This plugin only ever speaks to that CLI; it doesn't
 manage processes directly.
@@ -104,9 +106,10 @@ encounters them in the `plugin` list.
 ```
 
 The bare-string form (`"@geohar/opencode-sharedserver@latest"`) loads the
-plugin too, but no options reach it — `servers` is empty, the plugin logs
-`no servers configured; plugin is inert` and returns. The tuple form is
-required to actually manage any processes.
+plugin too, but no options reach it — so it has no inline `servers` and falls
+back to a discovered `servers.json` (per-project or global). With neither an
+inline nor a discovered config it brings nothing up and stays quiet. Use the
+tuple form to pass inline servers or a `profile`/`config`.
 
 > **⚠️ `@latest` refreshes opportunistically, not on every launch.**
 > OpenCode installs the spec the first time it sees it (under
@@ -146,14 +149,17 @@ Top-level options:
 | `lockdir` | `string`                      | Forwarded as `SHAREDSERVER_LOCKDIR` to child invocations.                |
 | `notify`  | `boolean`                     | Show TUI toasts for attach success/failure. Defaults to `true`.          |
 | `servers` | `Record<string, ServerSpec>`  | Map of sharedserver name → server config. Takes precedence over any config file. |
+| `profiles`| `Record<string, string[]>`    | Optional named profiles for the inline `servers` (`{ "<profile>": ["<server>", ...] }`). |
 | `config`  | `string`                      | Explicit path to a `servers.json`. Overrides the discovery chain below.  |
+| `profile` | `string`                      | Profile this session brings up. Default `opencode` (or `$OPENCODE_SHAREDSERVER_PROFILE`). |
 
 ### Where servers come from
 
-Inline `servers` wins. With none set, the plugin reads the **same
-`servers.json` as the Claude Code plugin**, so one file drives every client.
-First hit wins, and a per-project file *replaces* the global rather than
-merging with it:
+Inline `servers` wins — it's materialized to a temp `servers.json` so it flows
+through the `sharedserver` binary exactly like a file config does. With none set,
+the binary reads the **same `servers.json` as the Claude Code plugin**, so one
+file drives every client. First hit wins, and a per-project file *replaces* the
+global rather than merging with it:
 
 1. `config` option, or `$SHAREDSERVER_CONFIG`.
 2. **Per-project** — `.sharedserver.json` or `.sharedserver/servers.json`,
@@ -161,8 +167,13 @@ merging with it:
    root applies to sessions started anywhere inside it.
 3. `~/.config/sharedserver/servers.json` — global fallback.
 
-`${VAR}` references are expanded throughout the file (matching the envsubst
-pass the Claude hook runs), so `${HOME}` and `${USER}` work in any string value.
+The `sharedserver` binary expands `${VAR}` throughout the config, so `${HOME}`
+and `${USER}` work in any string value.
+
+This plugin brings up the **`opencode`** profile (override via the `profile`
+option or `$OPENCODE_SHAREDSERVER_PROFILE`). A server named by no profile is
+**universal** and comes up regardless; a config with no `profiles` brings up
+every server, exactly as before.
 
 No servers configured is a normal state, not an error — the plugin does nothing
 and the session starts clean.
@@ -192,28 +203,30 @@ Binary resolution order:
 
 ## What it runs
 
-For each configured server, on plugin load:
+On plugin load:
 
 ```
-sharedserver use <name> --pid <opencode-pid> \
-    [--grace-period <gracePeriod>] \
-    [--metadata <metadata>] \
-    [--log-file <logFile>] \
-    [--env K=V ...] \
-    -- <command> [args ...]
+sharedserver up --profile opencode --pid <opencode-pid> \
+    --profile-optional --json [--config <file>]
 ```
 
-The `--` and trailing command are omitted when `lazy: true`.
+`up` reads the config, expands `${VAR}`, selects the `opencode` profile (plus any
+universal, profile-less servers), and starts/attaches each — applying that
+server's `gracePeriod`, `env`, `logFile`, `metadata`, and `lazy`. The `--json`
+report tells the plugin exactly what came up, so it health-checks those servers
+2.5s later (`sharedserver info --json`). Inline `servers` are materialized to a
+temp file that `--config` points at.
 
 On `exit` / `SIGINT` / `SIGTERM` / `SIGHUP`:
 
 ```
-sharedserver unuse <name> --pid <opencode-pid>
+sharedserver down --profile opencode --pid <opencode-pid> --profile-optional
 ```
 
-`unuse` runs synchronously so it completes from inside `exit` handlers. After
-draining, signal handlers re-raise the original signal so OpenCode's exit
-code is preserved.
+`down` re-resolves the same selection and releases it, runs synchronously so it
+completes from inside `exit` handlers, and removes any temp config. After
+draining, signal handlers re-raise the original signal so OpenCode's exit code is
+preserved.
 
 ## Status surfacing
 
@@ -233,10 +246,11 @@ code is preserved.
 
 ## Behavior
 
-- Any failure (missing binary, misconfigured entry, `sharedserver use`
-  non-zero exit, dead-on-arrival from the health check) is logged and
-  surfaced as an error toast. The plugin never throws — opencode keeps
-  running even if every configured server fails to start.
+- Any failure (missing binary, unreadable config, `sharedserver up` non-zero
+  exit, dead-on-arrival from the health check) is logged and surfaced as an
+  error toast. The plugin never throws — opencode keeps running even if every
+  configured server fails to start, and one server failing does not abort the
+  rest of the profile.
 - `sharedserver` has its own dead-client detection that polls every 5 s, so
   even if the plugin can't run its cleanup (hard crash, `kill -9`) the
   refcount eventually self-corrects.
@@ -317,20 +331,16 @@ Expected line shapes:
 
 ```
 INFO service=plugin path=@geohar/opencode-sharedserver@latest loading plugin
-INFO service=sharedserver loaded options: binary=<auto> lockdir=<unset> servers={...}
-INFO service=sharedserver started sharedserver "chroma"
-INFO service=sharedserver posting toast (success): started chroma
-INFO service=sharedserver toast posted (success): started chroma
+INFO service=sharedserver profile "opencode": started chroma
 INFO service=sharedserver chroma: health check passed (pid=12345, state=active)
 ```
 
 Failure shapes:
 
 ```
-ERROR service=sharedserver server "chroma" has no `command` and is not lazy; ...
-ERROR service=sharedserver chroma: sharedserver use exited 1 (<stderr>)
+ERROR service=sharedserver up --profile opencode exited 1 (<stderr>)
+ERROR service=sharedserver chroma: failed to start (<reason>)
 ERROR service=sharedserver chroma: server PID 12345 died shortly after start
-WARN  service=sharedserver toast post failed: <reason>
 ```
 
 If you see `loading plugin` but no `loaded options` line, your options
