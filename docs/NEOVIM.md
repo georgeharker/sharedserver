@@ -136,6 +136,12 @@ require("sharedserver").setup({
     servers = {
         chroma = { command = "chroma", args = { "run" } },
     },
+    -- Optional: also bring up a shared *profile* from the sharedserver config
+    -- file on VimEnter, releasing it on VimLeave. This coexists with the inline
+    -- `servers` above — inline servers are driven directly; the profile is
+    -- resolved by the binary (`sharedserver up --profile <name>`), the same
+    -- profiles the Claude/OpenCode/Pi hosts use.
+    profile = "neovim",
     commands = true,  -- create user commands (default)
     notify = {
         on_start = true,   -- notify on first start
@@ -145,6 +151,12 @@ require("sharedserver").setup({
     },
 })
 ```
+
+Neovim is a **hybrid**: the `servers` table is self-driven in-process (Tier 1),
+while `profile` opts into the shared, config-file-defined profile that the other
+hosts use (Tier 2). Either or both may be set. A config file with no `profiles`
+map, or no `neovim` profile, is fine — `profile` uses `--profile-optional`, so a
+missing profile is quiet and only universal (profile-less) servers come up.
 
 ### `register(name, config)`
 

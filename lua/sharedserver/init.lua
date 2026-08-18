@@ -240,6 +240,58 @@ end
 -- End of sharedserver Integration
 -- ============================================================================
 
+-- Bring up a shared *profile* via `sharedserver up` (opt-in, set via
+-- `setup{ profile = "neovim" }`). This is the Tier-2 counterpart to the inline
+-- `servers` table: the binary reads the config file (discovered from the cwd),
+-- expands ${VAR}, selects the profile's servers, and starts/attaches each. The
+-- two coexist — inline servers are still driven directly by register/start.
+-- `--profile-optional` keeps a config without a matching profile quiet.
+M._profile_up = function()
+    local profile = M._config.profile
+    if not profile or profile == "" then
+        return
+    end
+    local args = {
+        "up",
+        "--profile",
+        profile,
+        "--pid",
+        tostring(vim.fn.getpid()),
+        "--cwd",
+        vim.fn.getcwd(),
+        "--profile-optional",
+    }
+    local _, stderr, exit_code = M._call_sharedserver(args)
+    if exit_code ~= 0 then
+        M._notify(
+            "sharedserver: failed to bring up profile '" .. profile .. "': " .. (stderr or "unknown error"),
+            vim.log.levels.ERROR,
+            "error"
+        )
+    else
+        M._notify("sharedserver: brought up profile '" .. profile .. "'", vim.log.levels.INFO, "start")
+    end
+end
+
+-- Release the shared profile via `sharedserver down`; re-resolves the same
+-- selection `up` used. Best-effort — the dead-client poller reclaims refs anyway.
+M._profile_down = function()
+    local profile = M._config.profile
+    if not profile or profile == "" then
+        return
+    end
+    M._call_sharedserver({
+        "down",
+        "--profile",
+        profile,
+        "--pid",
+        tostring(vim.fn.getpid()),
+        "--cwd",
+        vim.fn.getcwd(),
+        "--profile-optional",
+    })
+end
+
 -- Setup multiple servers at once
 M.setup = function(opts)
     opts = opts or {}
@@ -263,9 +315,25 @@ M.setup = function(opts)
         M.register(name, server_config)
     end
 
-    -- Setup VimLeave autocmd to stop all servers
+    -- Opt-in Tier-2: if a `profile` is configured, bring it up on VimEnter (or
+    -- now, if we already entered) alongside the inline servers above.
+    if M._config.profile and M._config.profile ~= "" then
+        if vim.v.vim_did_enter == 1 then
+            M._profile_up()
+        else
+            vim.api.nvim_create_autocmd("VimEnter", {
+                once = true,
+                callback = function()
+                    M._profile_up()
+                end,
+            })
+        end
+    end
+
+    -- Setup VimLeave autocmd to release the profile and stop all inline servers
     vim.api.nvim_create_autocmd("VimLeave", {
         callback = function()
+            M._profile_down()
             M.stop_all()
         end,
     })

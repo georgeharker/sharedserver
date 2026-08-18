@@ -327,11 +327,17 @@ the locations listed.
 On `VimEnter`:
 - Non-lazy servers: checks if running → attaches (incref) or starts
 - Lazy servers: attaches if running, otherwise does nothing
+- If a `profile` is configured, also runs `sharedserver up --profile <name>`
 
 On `VimLeave`:
 - Automatically decrements refcount for all attached servers
+- Runs `sharedserver down --profile <name>` if a `profile` is configured
 
 This means multiple Neovim instances share the same server process, and the server survives editor restarts within the grace period.
+
+Neovim is a **hybrid**: its inline `servers` table is self-driven in-process,
+and it can *additionally* opt into a shared [profile](#profiles) — the same
+config-file profiles the Claude/OpenCode/Pi hosts use — via `setup{ profile = "neovim" }`. See [Profiles](#profiles).
 
 ### Server Configuration
 
