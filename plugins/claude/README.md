@@ -2,13 +2,13 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) plugin that manages shared backend processes through the [`sharedserver`](https://github.com/georgeharker/sharedserver) CLI.
 
-On `SessionStart`, the plugin attaches to (or starts) each configured server with `sharedserver use`. On `SessionEnd`, it detaches with `sharedserver unuse`. Because `sharedserver` is reference-counted, multiple Claude Code sessions — or other tools using the same name — share a single backend process. The server survives session restarts inside its grace period and shuts down automatically when the last client leaves.
+On `SessionStart`, the plugin brings up this host's profile with `sharedserver up --profile claude`; on `SessionEnd` it releases it with `sharedserver down`. The `sharedserver` binary reads the config, expands `${VAR}`, and selects the servers itself — the hook is a single call and needs neither `jq` nor `envsubst`. Because `sharedserver` is reference-counted, multiple Claude Code sessions — or other tools using the same name — share a single backend process. The server survives session restarts inside its grace period and shuts down automatically when the last client leaves.
 
 This plugin is the Claude Code counterpart to [`opencode-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode); see its README for the OpenCode equivalent.
 
 ## About sharedserver
 
-[`sharedserver`](https://github.com/georgeharker/sharedserver) ([crates.io](https://crates.io/crates/sharedserver)) is a small Rust CLI that runs a long-lived process on behalf of several clients with reference counting, a configurable grace period after the last client detaches, and a watcher that reaps dead clients automatically. Verbs: `use`, `unuse`, `list`, `info`, `check`. State lives in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or `/tmp/sharedserver/`). This plugin only ever speaks to that CLI; it doesn't manage processes directly.
+[`sharedserver`](https://github.com/georgeharker/sharedserver) ([crates.io](https://crates.io/crates/sharedserver)) is a small Rust CLI that runs a long-lived process on behalf of several clients with reference counting, a configurable grace period after the last client detaches, and a watcher that reaps dead clients automatically. Verbs: `use`, `unuse`, `up`, `down`, `list`, `info`, `check` (`up`/`down` bring a whole **profile** up or down). State lives in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or `/tmp/sharedserver/`). This plugin only ever speaks to that CLI; it doesn't manage processes directly.
 
 **You do not need to install it.** On first use this plugin fetches a matching
 `sharedserver` from GitHub releases if one isn't already present — prebuilt, so no
@@ -44,8 +44,9 @@ Sharedserver is useful for long-lived development services that several clients 
 
 - Claude Code with plugin support
 - [`sharedserver`](https://crates.io/crates/sharedserver) reachable via `PATH`, `SHAREDSERVER_BIN`, or one of the standard cargo/homebrew locations (`bin/sharedserver` wrapper handles resolution)
-- `jq` on PATH (hooks parse the config with it)
-- `envsubst` on PATH (env-var expansion inside the config) — `brew install gettext` on macOS
+
+> The hooks no longer need `jq` or `envsubst`: the `sharedserver` binary parses
+> the config and expands `${VAR}` itself. Only the binary is required.
 
 ## Install
 
@@ -131,7 +132,33 @@ Per-server fields (matches the opencode plugin):
 | `lazy`        | `boolean`    | Attach only if the server is already running; never start it.                            |
 | `skipIfEnv`   | `string`     | Name of an env var; when it is set (non-empty) this server is skipped entirely — neither started nor attached. Use it when another host already launched the process for this session. |
 
-The whole file passes through `envsubst` before parsing, so `${HOME}`, `${USER}`, `${PATH}`, etc. work in any string value.
+`sharedserver` expands `${HOME}`, `${USER}`, `${PATH}`, etc. in any string value when it reads the config.
+
+### Profiles (optional)
+
+By default every configured server comes up — that's the behaviour when the
+config has no `profiles`, and nothing you already have needs to change. Add a
+top-level `profiles` map to bring up only a slice per host:
+
+```json
+{
+  "servers": {
+    "mcp-combiner": { "command": "mcp-combiner", "args": ["--mcp"] },
+    "chroma":       { "command": "chroma", "args": ["run"] },
+    "watchman":     { "lazy": true }
+  },
+  "profiles": {
+    "claude": ["mcp-combiner", "chroma"]
+  }
+}
+```
+
+This plugin brings up the **`claude`** profile. A server named by *no* profile
+(`watchman` above) is **universal** and comes up regardless. So with the map
+above, a Claude session starts `mcp-combiner`, `chroma`, and `watchman`, while a
+different host (e.g. `opencode`) with its own profile would get a different slice
+plus the same universal servers. Override the profile name this session uses with
+`$CLAUDE_SHAREDSERVER_PROFILE`.
 
 ### `skipIfEnv` — when something else already launched the server
 
@@ -150,30 +177,33 @@ context and Claude simply connects to the combiner the editor owns; run standalo
 
 ## What it runs
 
-For each configured server, on `SessionStart`:
+On `SessionStart`:
 
 ```
-sharedserver use <name> --pid <claude-session-pid> \
-    [--grace-period <gracePeriod>] \
-    [--metadata <metadata>] \
-    [--log-file <logFile>] \
-    [--env K=V ...] \
-    -- <command> [args ...]
+sharedserver up --profile claude --pid <claude-session-pid> \
+    --profile-optional --cwd <project-dir> [--config <file>]
 ```
-
-The `--` and trailing command are omitted when `lazy: true`.
 
 On `SessionEnd`:
 
 ```
-sharedserver unuse <name> --pid <claude-session-pid>
+sharedserver down --profile claude --pid <claude-session-pid> \
+    --profile-optional --cwd <project-dir> [--config <file>]
 ```
+
+`up` reads the config, expands `${VAR}`, selects the `claude` profile (plus any
+universal, profile-less servers), and runs each — applying that server's
+`gracePeriod`, `env`, `logFile`, `metadata`, and `lazy` from the config. `down`
+re-resolves the same selection and releases it. The profile is `claude` by
+default (override with `$CLAUDE_SHAREDSERVER_PROFILE`); `--profile-optional`
+means a config without a `claude` profile is fine — universal servers still come
+up, with no warning.
 
 `<claude-session-pid>` is `$PPID` of the hook process. That's the Claude Code session itself, so the refcount tracks Claude sessions and not the (ephemeral) hook invocations.
 
 ## Behavior
 
-- Any failure (missing binary, bad config, `sharedserver use` non-zero exit) is logged to stderr and ignored. The plugin never blocks a Claude session from starting.
+- Any failure (missing binary, bad config, `sharedserver up` non-zero exit) is logged to stderr — plus a `systemMessage` on `SessionStart`, since that hook's stderr is otherwise invisible — and then ignored. The plugin never blocks a Claude session from starting. A single server failing to start does not abort the rest of the profile.
 - `sharedserver` polls every ~5s for dead clients, so even if `SessionEnd` never fires (hard crash, `kill -9`) the refcount eventually self-corrects.
 - Multiple Claude Code sessions pointing at the same server name share one process. The first session starts it; subsequent ones increment the refcount; the last one out triggers the grace period.
 

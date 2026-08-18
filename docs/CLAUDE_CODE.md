@@ -15,10 +15,12 @@ page is a short orientation.
 
 ## How it works
 
-On `SessionStart`, the plugin attaches to (or starts) each configured server
-with `sharedserver use`; on `SessionEnd`, it detaches with `sharedserver unuse`.
-The client PID is the Claude Code session (`$PPID` of the hook process), so the
-refcount tracks sessions rather than the ephemeral hook invocations. Because
+On `SessionStart`, the plugin brings up this host's profile with `sharedserver
+up --profile claude`; on `SessionEnd` it releases it with `sharedserver down`.
+The binary reads the config, expands `${VAR}`, and selects the servers itself, so
+the hook is a single call needing neither `jq` nor `envsubst`. The client PID is
+the Claude Code session (`$PPID` of the hook process), so the refcount tracks
+sessions rather than the ephemeral hook invocations. Because
 `sharedserver` is reference-counted, multiple Claude Code sessions — and any
 shells, scripts, Neovim, or OpenCode instances using the same name — share a
 single backend process, which survives session restarts inside its grace period
@@ -34,8 +36,8 @@ architecture, grace periods, and dead-client detection applies unchanged.
   already present, so **no Rust toolchain is required**. Any binary reachable via
   `PATH`, `SHAREDSERVER_BIN`, or a standard cargo/homebrew location is used instead
   of downloading; `SHAREDSERVER_BIN` in particular is always honoured as-is
-- `jq` and `envsubst` on `PATH` — the hooks parse the config with `jq` and
-  expand `${VAR}` references with `envsubst` (`brew install gettext` on macOS)
+  (the `sharedserver` binary now parses the config and expands `${VAR}` itself,
+  so the hooks need neither `jq` nor `envsubst`)
 
 ## Install
 
@@ -64,10 +66,12 @@ Then drop a config file at `~/.config/sharedserver/servers.json` (or set
 ```
 
 The `servers` schema is intentionally compatible with the OpenCode plugin — a
-`servers` map copies across without changes. The Claude plugin additionally
-supports **`skipIfEnv`**: name an env var and the entry is skipped whenever that
-var is non-empty, for when another host already launched the process for this
-session.
+`servers` map copies across without changes. An optional top-level `profiles` map
+groups servers so this host brings up only its `claude` profile (plus universal,
+profile-less servers); a config with no `profiles` brings up everything, exactly
+as before. The Claude plugin also supports **`skipIfEnv`**: name an env var and
+the entry is skipped whenever that var is non-empty, for when another host
+already launched the process for this session.
 
 ## Working with the plugin source
 
@@ -89,7 +93,7 @@ git add plugins/claude && git commit -m "feat(claude): ..."
 ## Reference
 
 The plugin README covers the parts not repeated here — the full per-server
-option table, the exact `sharedserver use` / `unuse` invocations, the
+option table, the exact `sharedserver up` / `down` invocations, profiles, the
 `skipIfEnv` / mcp-companion pairing, and diagnostics.
 
 See the [claude-sharedserver README](https://github.com/georgeharker/sharedserver/blob/main/plugins/claude/README.md).
