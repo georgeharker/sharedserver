@@ -114,6 +114,8 @@ sharedserver unuse webserver  # server stays alive if others need it
 |---------|-------------|
 | `use <name> [-- <cmd> [args...]]` | Attach to server (starts if needed) |
 | `unuse <name>` | Detach from server |
+| `up --profile <p> [--pid <pid>]` | Bring up every server in a profile (see [Profiles](#profiles)) |
+| `down --profile <p> [--pid <pid>]` | Release every server in a profile |
 | `list` | Show all managed servers |
 | `info <name> [--json]` | Server details (formatted or JSON) |
 | `check <name>` | Test if server exists (exit: 0=active, 1=grace, 2=stopped, 3=defunct) |
@@ -136,6 +138,49 @@ See [Stopping a server](#stopping-a-server-stop-vs-stop---force-vs-kill) for whe
 **PID behavior:**
 - User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
 - Admin commands: `--pid` defaults to current process
+
+### Profiles
+
+A **profile** names a set of servers, so one config can serve several callers and
+each brings up only its own slice. A *host* identity — `claude`, `opencode`,
+`pi`, `neovim` — is just a reserved profile name; there is no separate host axis.
+
+```jsonc
+// ~/.config/sharedserver/servers.json
+{
+  "servers": {
+    "chroma":   { "command": "chroma", "args": ["run"] },
+    "pi-thing": { "command": "pi-thing" },
+    "watchman": { "lazy": true }
+  },
+  "profiles": {
+    "opencode": ["chroma"],
+    "pi":       ["pi-thing"]
+  }
+}
+```
+
+`up` brings a profile up as one unit and `down` releases it; the binary resolves
+each def from the config and fans out to `use`/`unuse`:
+
+```bash
+sharedserver up   --profile opencode --pid $$   # starts chroma + watchman
+sharedserver down --profile opencode --pid $$   # releases them
+```
+
+- **Universal servers.** A server named by *no* profile (`watchman` above) comes
+  up for *every* profile. A config with no `profiles` at all therefore behaves
+  exactly as before — every server is universal, so any caller brings up
+  everything. Adding `profiles` is opt-in and backward compatible.
+- **Deterministic.** `down` re-resolves the same selection, so it releases
+  precisely what `up` started — no state is tracked between them.
+- **`up` honours `lazy`** (attach-only, never starts) and **`skipIfEnv`** (skip
+  when another host already launched the server), and tolerates a single server
+  failing without aborting the rest.
+- **`--profile-optional`.** By default `up`/`down` warn when the named profile
+  doesn't exist. Pass `--profile-optional` to treat a missing profile as normal
+  (bring up only universal servers, no warning) — for a program asking for its
+  own host profile that the user may not have defined.
 
 ### Shell Completions
 
@@ -374,7 +419,9 @@ when the last session leaves. Both live here as plain in-tree directories under
 
 Their per-server config (`command`, `args`, `env`, `gracePeriod`, `logFile`,
 `metadata`, `lazy`) is intentionally compatible — a `servers` map copies across
-OpenCode, Claude Code, and the Neovim config without changes.
+OpenCode, Claude Code, and the Neovim config without changes. An optional
+top-level `profiles` map groups servers so a caller can bring up just its own
+slice with `up`/`down` — see [Profiles](#profiles).
 
 ```jsonc
 // OpenCode — ~/.config/opencode/config.json

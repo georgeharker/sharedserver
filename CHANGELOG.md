@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Profiles and the `up`/`down` verbs.** `servers.json` gains an optional
+  top-level `profiles` map (`{ "<profile>": ["<server>", ...] }`) that groups
+  servers, and the binary now owns config parsing: it reads the file, expands
+  `${VAR}`, and resolves a profile to a server set. `sharedserver up --profile
+  <p> --pid <pid>` brings that set up (fanning out to `use`) and `down` releases
+  it (fanning out to `unuse`), selecting deterministically so `down` releases
+  exactly what `up` started. A *host* identity (`claude`/`opencode`/`pi`/
+  `neovim`) is simply a reserved profile name — there is no separate host axis.
+  A server named by no profile is **universal** and comes up for every profile,
+  so a config with no `profiles` behaves exactly as before (fully backward
+  compatible). `up` honours `lazy` and `skipIfEnv` and tolerates a single server
+  failing without aborting the rest. `--profile-optional` suppresses the
+  "unknown profile" warning for a program asking for its own, possibly-undefined
+  host profile (the plain CLI still warns).
 - **Prebuilt binaries for every release**, built by
   [cargo-dist](https://opensource.axo.dev/cargo-dist/) for macOS and Linux on both
   x86_64 and arm64, published to the GitHub release alongside a hosted
