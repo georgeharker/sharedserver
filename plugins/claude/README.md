@@ -241,21 +241,22 @@ Common issues:
 
 ## Slash commands
 
-The plugin ships read-only slash commands (under `commands/`) for introspection:
+The plugin ships slash commands (under `commands/`) for on-demand control and
+introspection:
 
 | Command | Does |
 |---------|------|
 | `status` | Show running servers (`sharedserver list`) |
+| `up <profile>` | Bring up a (task) profile for this session |
+| `down <profile>` | Release it |
 | `config-show` | Print the whole config (servers + profiles) |
 | `config-lookup <name>` | One server's def + the profiles it's in |
 
-These are **read-only** by design. Profile `up`/`down` aren't offered as slash
-commands here: a Claude command runs as a transient process, so the reference it
-would take dies immediately and the servers would fall straight into their grace
-period. Bringing profiles up/down belongs to the session lifecycle (handled
-automatically for the `claude` profile) or to a long-lived host (Neovim's
-`:ServerUp`/`:ServerDown`, the Pi `/sharedserver up|down`). Run `sharedserver up
---profile <p>` directly if you need it in a shell.
+`up`/`down` pass `--pid "$PPID"` — the Claude **session** process, the same
+reference the SessionStart/SessionEnd hooks use — so a profile brought up this way
+stays up for the session and is reclaimed when it ends (or by `down`). Config
+*mutations* (`register`/`unregister`) are deliberately not exposed as slash
+commands; those are install-time edits.
 
 ## License
 
