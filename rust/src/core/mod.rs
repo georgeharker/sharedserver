@@ -1,9 +1,14 @@
+pub mod config;
 pub mod duration;
 pub mod health;
 pub mod lockfile;
 pub mod log;
 pub mod state;
 
+pub use config::{
+    discover_config_path, load_config, parse_config, select, Config, Selected, Selection,
+    ServerSpec,
+};
 pub use duration::parse_duration;
 pub use health::{
     is_process_alive, process_liveness, process_liveness_checked, process_start_stamp, Liveness,

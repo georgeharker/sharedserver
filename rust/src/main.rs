@@ -15,6 +15,8 @@ down gracefully when no clients remain (after a configurable grace period).
 EVERYDAY COMMANDS:
   use         Attach to a server (starts if needed)
   unuse       Detach from a server
+  up          Bring up every server in a profile (from the config)
+  down        Release every server in a profile
   list        Show all running servers
   info        Get detailed server information
   check       Check if server is running
@@ -70,6 +72,43 @@ enum Commands {
         /// Client PID (defaults to parent process - the caller)
         #[arg(long)]
         pid: Option<i32>,
+    },
+    /// Bring up every server in a profile, resolving each def from the config.
+    ///
+    /// A "profile" is a named set of servers in servers.json; a host identity
+    /// (opencode, claude, pi, neovim) is just a reserved profile name. Servers in
+    /// no profile are universal and come up for any profile.
+    Up {
+        /// Profile to bring up (typically your host: opencode, claude, pi, ...)
+        #[arg(long)]
+        profile: String,
+        /// Client PID this bring-up refs (defaults to parent process - the caller)
+        #[arg(long)]
+        pid: Option<i32>,
+        /// Grace period for servers that don't set their own (e.g. "5m", "1h")
+        #[arg(long, default_value = "5m")]
+        grace_period: String,
+        /// Explicit config file, overriding the discovery chain
+        #[arg(long)]
+        config: Option<String>,
+        /// Directory to resolve the per-project config from (defaults to cwd)
+        #[arg(long)]
+        cwd: Option<String>,
+    },
+    /// Release every server in a profile (the inverse of `up`).
+    Down {
+        /// Profile to release (must match the `up` that brought it up)
+        #[arg(long)]
+        profile: String,
+        /// Client PID whose refs to release (defaults to parent process)
+        #[arg(long)]
+        pid: Option<i32>,
+        /// Explicit config file, overriding the discovery chain
+        #[arg(long)]
+        config: Option<String>,
+        /// Directory to resolve the per-project config from (defaults to cwd)
+        #[arg(long)]
+        cwd: Option<String>,
     },
     /// List all servers
     List {
@@ -197,6 +236,25 @@ fn main() -> Result<()> {
             &command,
         ),
         Commands::Unuse { name, pid } => commands::unuse::execute(&name, pid),
+        Commands::Up {
+            profile,
+            pid,
+            grace_period,
+            config,
+            cwd,
+        } => commands::up::execute(
+            &profile,
+            pid,
+            &grace_period,
+            config.as_deref(),
+            cwd.as_deref(),
+        ),
+        Commands::Down {
+            profile,
+            pid,
+            config,
+            cwd,
+        } => commands::down::execute(&profile, pid, config.as_deref(), cwd.as_deref()),
         Commands::List { json } => commands::list::execute(json),
         Commands::Info { name, json } => commands::info::execute(&name, json),
         Commands::Check { name } => commands::check::execute(&name),
