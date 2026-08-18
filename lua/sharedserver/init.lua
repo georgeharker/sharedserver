@@ -246,8 +246,8 @@ end
 -- expands ${VAR}, selects the profile's servers, and starts/attaches each. The
 -- two coexist — inline servers are still driven directly by register/start.
 -- `--profile-optional` keeps a config without a matching profile quiet.
-M._profile_up = function()
-    local profile = M._config.profile
+M._profile_up = function(profile)
+    profile = profile or M._config.profile
     if not profile or profile == "" then
         return
     end
@@ -275,8 +275,8 @@ end
 
 -- Release the shared profile via `sharedserver down`; re-resolves the same
 -- selection `up` used. Best-effort — the dead-client poller reclaims refs anyway.
-M._profile_down = function()
-    local profile = M._config.profile
+M._profile_down = function(profile)
+    profile = profile or M._config.profile
     if not profile or profile == "" then
         return
     end
@@ -977,6 +977,33 @@ M._setup_commands = function()
     end, {
         nargs = 0,
         desc = "Stop all servers",
+    })
+
+    -- :ServerUp [profile] - Bring up a sharedserver profile (defaults to the
+    -- configured `profile`). The Tier-2 counterpart to the inline servers above.
+    vim.api.nvim_create_user_command("ServerUp", function(opts)
+        local p = opts.args ~= "" and opts.args or M._config.profile
+        if not p or p == "" then
+            vim.notify("sharedserver: no profile configured; usage: ServerUp <profile>", vim.log.levels.ERROR)
+            return
+        end
+        M._profile_up(p)
+    end, {
+        nargs = "?",
+        desc = "Bring up a sharedserver profile",
+    })
+
+    -- :ServerDown [profile] - Release a sharedserver profile.
+    vim.api.nvim_create_user_command("ServerDown", function(opts)
+        local p = opts.args ~= "" and opts.args or M._config.profile
+        if not p or p == "" then
+            vim.notify("sharedserver: no profile configured; usage: ServerDown <profile>", vim.log.levels.ERROR)
+            return
+        end
+        M._profile_down(p)
+    end, {
+        nargs = "?",
+        desc = "Release a sharedserver profile",
     })
 end
 

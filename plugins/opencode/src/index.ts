@@ -15,7 +15,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { Plugin } from "@opencode-ai/plugin"
+import { tool, type Plugin } from "@opencode-ai/plugin"
 import { resolveSharedserver } from "./sharedserver-resolve.js"
 
 type ServerSpec = {
@@ -260,6 +260,24 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
         return {}
     }
 
+    // A read-only status tool the agent can call to see what sharedserver is
+    // running. Deliberately read-only: bringing profiles up/down is a user /
+    // lifecycle action, not something the model should trigger silently.
+    const statusHooks = {
+        tool: {
+            sharedserver_status: tool({
+                description:
+                    "Report the state of sharedserver-managed backend processes (running servers, PIDs, refcounts). Read-only; does not start or stop anything.",
+                args: {},
+                async execute() {
+                    const r = spawnSync(binary, ["list"], { env })
+                    const output = (r.stdout?.toString() || r.stderr?.toString() || "(no servers running)").trim()
+                    return { title: "sharedserver status", output }
+                },
+            }),
+        },
+    }
+
     // Config source: inline `servers` (materialized) wins; else an explicit
     // `config` path; else the binary's own discovery chain from --cwd.
     let configArg: string[] = []
@@ -282,7 +300,7 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
                 /* best effort */
             }
         }
-        return {}
+        return statusHooks
     }
 
     for (const w of report.warnings ?? []) log("warn", w)
@@ -311,7 +329,7 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
                 /* best effort */
             }
         }
-        return {}
+        return statusHooks
     }
 
     session = { binary, profile, pid: process.pid, cwd, configArg, tempDir, env }
@@ -322,7 +340,7 @@ const SharedServerPlugin: Plugin = async ({ client }, options) => {
     if (reattached.length) parts.push(`attached ${reattached.join(", ")}`)
     if (parts.length) toast("success", parts.join("; "))
 
-    return {}
+    return statusHooks
 }
 
 export default SharedServerPlugin

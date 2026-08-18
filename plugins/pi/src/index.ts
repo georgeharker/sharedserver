@@ -172,6 +172,83 @@ export default function sharedserverPi(pi: ExtensionAPI): void {
     const notifyEnabled = env("PI_SHAREDSERVER_NOTIFY") !== "false"
     const profile = env("PI_SHAREDSERVER_PROFILE") ?? "pi"
 
+    // ── /sharedserver slash command ──────────────────────────────────
+    // On-demand control + introspection the auto-lifecycle can't give:
+    //   /sharedserver status                 what's running
+    //   /sharedserver up   <profile>         bring a (task) profile up on demand
+    //   /sharedserver down <profile>         release it
+    //   /sharedserver config show            the whole config
+    //   /sharedserver config lookup <name>   one server's def + profiles
+    // Config *mutations* (register/unregister) are deliberately NOT here — those
+    // are install-time edits, not in-session actions.
+    const VERBS = ["status", "up", "down", "config"]
+    const CONFIG_SUBS = ["show", "lookup"]
+
+    pi.registerCommand("sharedserver", {
+        description: "sharedserver — status | up <profile> | down <profile> | config show | config lookup <name>",
+        getArgumentCompletions: (prefix) => {
+            const toks = prefix.split(/\s+/)
+            if (toks.length <= 1) {
+                return VERBS.filter((v) => v.startsWith(toks[0] ?? "")).map((v) => ({ value: v }))
+            }
+            if (toks[0] === "config" && toks.length === 2) {
+                return CONFIG_SUBS.filter((s) => s.startsWith(toks[1] ?? "")).map((s) => ({ value: s }))
+            }
+            return null
+        },
+        handler: async (args, ctx) => {
+            const log = makeLog(ctx, notifyEnabled)
+            const toks = args.trim().split(/\s+/).filter(Boolean)
+            const verb = toks[0] ?? "status"
+
+            const childEnv: NodeJS.ProcessEnv = { ...process.env }
+            const lockdir = env("SHAREDSERVER_LOCKDIR")
+            if (lockdir) childEnv.SHAREDSERVER_LOCKDIR = lockdir
+            const binary = resolveBinary(env("SHAREDSERVER_BIN"), childEnv, log)
+            if (!binary) {
+                ctx.ui?.notify?.("sharedserver: binary not found", "error")
+                return
+            }
+            const run = (cliArgs: string[]) => pi.exec(binary, cliArgs, { env: childEnv })
+            const emit = (content: string) =>
+                pi.sendMessage({ customType: "sharedserver", content, display: true })
+
+            switch (verb) {
+                case "status": {
+                    const r = await run(["list"])
+                    emit(r.stdout.trim() || "(no servers running)")
+                    return
+                }
+                case "up":
+                case "down": {
+                    const prof = toks[1] ?? profile
+                    const r = await run([verb, "--profile", prof, "--pid", String(process.pid), "--profile-optional"])
+                    const line = (r.stdout || r.stderr).trim() || `${verb} ${prof}: done`
+                    ctx.ui?.notify?.(`sharedserver: ${line}`, r.code === 0 ? "info" : "error")
+                    return
+                }
+                case "config": {
+                    const sub = toks[1]
+                    if (sub === "show") {
+                        emit((await run(["config", "show"])).stdout.trim() || "(empty config)")
+                    } else if (sub === "lookup") {
+                        const name = toks[2]
+                        if (!name) {
+                            ctx.ui?.notify?.("usage: /sharedserver config lookup <name>", "warn")
+                            return
+                        }
+                        emit((await run(["config", "lookup", name])).stdout.trim() || `'${name}' not registered`)
+                    } else {
+                        ctx.ui?.notify?.(`config: unknown sub "${sub ?? ""}". Try: show, lookup <name>`, "warn")
+                    }
+                    return
+                }
+                default:
+                    ctx.ui?.notify?.(`sharedserver: unknown verb "${verb}". Try: ${VERBS.join(", ")}`, "warn")
+            }
+        },
+    })
+
     pi.on("session_start", (_event, ctx) => {
         if (session) return // already up for this process
 
