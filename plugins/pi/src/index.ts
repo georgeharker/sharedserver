@@ -1,54 +1,37 @@
 // Pi extension: manage shared backend processes via the `sharedserver` CLI.
 // See README.md for installation and configuration.
 //
-// It is the Pi counterpart of sharedserver's Claude Code and OpenCode plugins and
-// mirrors the OpenCode one's behaviour — a generic, config-driven manager rather than a
-// single-backend plugin:
+// It is the Pi counterpart of sharedserver's Claude Code and OpenCode plugins.
+// The `sharedserver` binary now owns config parsing, so this extension no longer
+// reads servers.json itself — it drives one profile:
 //
-//   1. Config — the same servers.json discovery chain the Claude hook and OpenCode
-//      plugin use (explicit override → per-project file walked UP from cwd → global),
-//      so one file drives every client. `${VAR}` references are expanded identically.
-//   2. Process — on `session_start`, drive `sharedserver use … -- <argv>` for each
-//      configured server so each warm backend is running and refcounted (shared across
-//      clients). Released on `session_shutdown` when `reason === "quit"`
-//      (reload/resume/fork keep the processes and re-attach).
-//   3. Health — 2.5s after start, verify each wrapped process is still alive.
+//   1. On `session_start`, run `sharedserver up --profile <host> --json` for this
+//      host's profile. The binary discovers the config (from --cwd), expands
+//      ${VAR}, selects the profile's servers (plus universal, profile-less ones),
+//      and starts/attaches each; the JSON report says exactly what came up.
+//   2. Health — 2.5s after start, verify each server it reported started/attached
+//      is still alive (`sharedserver info --json`).
+//   3. On `session_shutdown` ("quit"), run `sharedserver down --profile <host>` to
+//      release. reload/resume/fork keep the processes and re-attach.
 //
-// Config comes from the servers.json chain plus a few env knobs (no inline options, as
-// Pi extensions receive none): $SHAREDSERVER_BIN, $SHAREDSERVER_LOCKDIR,
-// $SHAREDSERVER_CONFIG, $PI_SHAREDSERVER_NOTIFY. The sharedserver resolution and the
-// servers.json handling are ported byte-for-byte from plugins/opencode.
+// The profile defaults to "pi"; override with $PI_SHAREDSERVER_PROFILE. A config
+// with no `profiles` brings up every server (all universal), exactly as before.
+// Env knobs: $SHAREDSERVER_BIN, $SHAREDSERVER_LOCKDIR, $SHAREDSERVER_CONFIG,
+// $PI_SHAREDSERVER_NOTIFY, $PI_SHAREDSERVER_PROFILE.
 
 import { spawnSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { homedir } from "node:os"
-import { dirname, join, resolve as resolvePath } from "node:path"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { ExtensionContext, ExtensionAPI, SessionShutdownEvent } from "./pi.js"
+import type { ExtensionAPI, ExtensionContext, SessionShutdownEvent } from "./pi.js"
 import { resolveSharedserver } from "./sharedserver-resolve.js"
 
-type ServerSpec = {
-    /** Binary to run (required unless `lazy` is true). */
-    command?: string
-    /** Arguments passed to `command`. */
-    args?: string[]
-    /** Extra environment variables forwarded via `--env KEY=VALUE`. */
-    env?: Record<string, string>
-    /** Grace period for sharedserver, e.g. "30m", "1h", "2h30m". */
-    gracePeriod?: string
-    /** Capture stdout/stderr of the managed server to this path. */
-    logFile?: string
-    /** Optional metadata string forwarded to sharedserver. */
-    metadata?: string
-    /** Only attach if the server is already running; never start it. */
-    lazy?: boolean
-    /** Name of an env var; when it is set (non-empty) this server is skipped
-     *  entirely — neither started nor attached. Use it when another host has
-     *  already launched the process for this session. */
-    skipIfEnv?: string
-}
-
 type LogFn = (level: "info" | "warn" | "error", message: string) => void
+
+/** One server's outcome in an `up`/`down --json` report. */
+type ServerOutcome = "started" | "attached" | "skipped" | "failed" | "released"
+type ReportServer = { name: string; outcome: ServerOutcome; pid?: number; reason?: string }
+type Report = { profile: string; servers: ReportServer[]; warnings?: string[] }
 
 const PLUGIN_VERSION: string | undefined = (() => {
     try {
@@ -65,23 +48,6 @@ const PLUGIN_VERSION: string | undefined = (() => {
 // so it pins to this package's own version.
 function resolveBinary(override: string | undefined, env: NodeJS.ProcessEnv, log?: LogFn): string | undefined {
     return resolveSharedserver({ pkgVersion: PLUGIN_VERSION }, override, env, log)
-}
-
-// `sharedserver check` exit codes: 0 = active, 1 = grace, 2 = stopped.
-type PreState = "active" | "grace" | "stopped" | "unknown"
-
-function preCheck(binary: string, name: string, env: NodeJS.ProcessEnv): PreState {
-    const result = spawnSync(binary, ["check", name], { stdio: "ignore", env })
-    switch (result.status) {
-        case 0:
-            return "active"
-        case 1:
-            return "grace"
-        case 2:
-            return "stopped"
-        default:
-            return "unknown"
-    }
 }
 
 type ServerInfo = { pid?: number; state?: string }
@@ -105,13 +71,9 @@ function isPidAlive(pid: number): boolean {
     }
 }
 
-function scheduleHealthCheck(
-    binary: string,
-    name: string,
-    env: NodeJS.ProcessEnv,
-    log: LogFn,
-    delayMs: number,
-) {
+/** Verify a server the profile brought up is still alive `delayMs` later — catches
+ *  the case where `up` reported success but the process crashed a moment after. */
+function scheduleHealthCheck(binary: string, name: string, env: NodeJS.ProcessEnv, log: LogFn, delayMs: number) {
     setTimeout(() => {
         const info = readServerInfo(binary, name, env)
         if (!info) {
@@ -130,119 +92,7 @@ function scheduleHealthCheck(
     }, delayMs).unref()
 }
 
-function buildUseArgs(name: string, spec: ServerSpec, pid: number): string[] {
-    const args = ["use", name, "--pid", String(pid)]
-    if (spec.gracePeriod) args.push("--grace-period", spec.gracePeriod)
-    if (spec.metadata) args.push("--metadata", spec.metadata)
-    if (spec.logFile) args.push("--log-file", spec.logFile)
-    for (const [k, v] of Object.entries(spec.env ?? {})) {
-        args.push("--env", `${k}=${v}`)
-    }
-    if (!spec.lazy && spec.command) {
-        args.push("--", spec.command, ...(spec.args ?? []))
-    }
-    return args
-}
-
-type Attached = { binary: string; name: string; env: NodeJS.ProcessEnv }
-
-const attached: Attached[] = []
-let cleanupInstalled = false
-
-function installCleanup() {
-    if (cleanupInstalled) return
-    cleanupInstalled = true
-
-    const drain = () => {
-        while (attached.length) {
-            const s = attached.pop()!
-            // Synchronous spawn so this works from `exit` handlers too.
-            spawnSync(s.binary, ["unuse", s.name, "--pid", String(process.pid)], {
-                stdio: "ignore",
-                env: s.env,
-            })
-        }
-    }
-
-    process.on("exit", drain)
-
-    const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"]
-    for (const sig of signals) {
-        process.on(sig, () => {
-            drain()
-            // Re-raise so the original signal semantics apply (e.g. exit code).
-            process.kill(process.pid, sig)
-        })
-    }
-}
-
-function drainAttached() {
-    while (attached.length) {
-        const s = attached.pop()!
-        spawnSync(s.binary, ["unuse", s.name, "--pid", String(process.pid)], { stdio: "ignore", env: s.env })
-    }
-}
-
-// ── shared servers.json discovery (parity with the Claude Code and OpenCode plugins) ──
-//
-// Every client reads the same file so one config drives them all. The chain mirrors
-// hooks/use-servers.sh exactly — explicit override, then a per-project config walked UP
-// from the project dir, then the global one. First hit wins; a per-project file REPLACES
-// the global rather than merging with it.
-
-const PROJECT_CONFIG_NAMES = [".sharedserver.json", join(".sharedserver", "servers.json")]
-
-function resolveConfigPath(explicitOverride: string | undefined, env: NodeJS.ProcessEnv, cwd: string): string | undefined {
-    const explicit = explicitOverride ?? env.SHAREDSERVER_CONFIG
-    if (explicit && existsSync(explicit)) return explicit
-
-    let dir = resolvePath(cwd)
-    for (;;) {
-        for (const name of PROJECT_CONFIG_NAMES) {
-            const candidate = join(dir, name)
-            if (existsSync(candidate)) return candidate
-        }
-        const parent = dirname(dir)
-        if (parent === dir) break
-        dir = parent
-    }
-
-    const global = join(homedir(), ".config", "sharedserver", "servers.json")
-    return existsSync(global) ? global : undefined
-}
-
-/** Expand ${VAR} references in every string, mirroring the envsubst pass the Claude hook
- *  runs, so one file behaves identically in every client. */
-function expandVars<T>(value: T, env: NodeJS.ProcessEnv): T {
-    if (typeof value === "string") {
-        return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, name) =>
-            env[name] !== undefined ? (env[name] as string) : m,
-        ) as unknown as T
-    }
-    if (Array.isArray(value)) return value.map((v) => expandVars(v, env)) as unknown as T
-    if (value && typeof value === "object") {
-        const out: Record<string, unknown> = {}
-        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-            out[k] = expandVars(v, env)
-        }
-        return out as unknown as T
-    }
-    return value
-}
-
-function loadServersFromFile(path: string, env: NodeJS.ProcessEnv, log: LogFn): Record<string, ServerSpec> {
-    try {
-        const parsed = JSON.parse(readFileSync(path, "utf8")) as { servers?: Record<string, ServerSpec> }
-        const servers = expandVars(parsed.servers ?? {}, env)
-        log("info", `loaded ${Object.keys(servers).length} server(s) from ${path}`)
-        return servers
-    } catch (err) {
-        log("error", `could not read ${path}: ${err instanceof Error ? err.message : String(err)}`)
-        return {}
-    }
-}
-
-// ── env configuration ───────────────────────────────────────────────
+// ── env helpers ──────────────────────────────────────────────────────
 function env(name: string): string | undefined {
     const v = process.env[name]
     return v !== undefined && v !== "" ? v : undefined
@@ -259,16 +109,71 @@ function makeLog(ctx: ExtensionContext, notify: boolean): LogFn {
     }
 }
 
+/** Run `up`/`down --profile <profile> --json` and parse the report. Returns null
+ *  on spawn failure, a non-zero exit (a hard error like unreadable config), or
+ *  unparseable output — the message is logged in each case. */
+function runProfile(
+    verb: "up" | "down",
+    binary: string,
+    profile: string,
+    pid: number,
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    log: LogFn,
+): Report | undefined {
+    const args = [verb, "--profile", profile, "--pid", String(pid), "--cwd", cwd, "--profile-optional", "--json"]
+    const result = spawnSync(binary, args, { env })
+    if (result.error) {
+        log("error", `${verb}: failed to spawn sharedserver (${result.error.message})`)
+        return undefined
+    }
+    if (result.status !== 0) {
+        const stderr = result.stderr?.toString().trim()
+        log("error", `${verb} --profile ${profile} exited ${result.status}${stderr ? ` (${stderr})` : ""}`)
+        return undefined
+    }
+    try {
+        return JSON.parse(result.stdout.toString()) as Report
+    } catch (err) {
+        log("error", `${verb}: could not parse JSON report (${err instanceof Error ? err.message : String(err)})`)
+        return undefined
+    }
+}
+
+// Teardown state for the current session, recorded on the first `up` so exit/quit
+// paths can `down` the same profile. Guards against a second `up` within one process
+// (reload/resume/fork re-enter session_start but keep the processes attached).
+type Session = { binary: string; profile: string; pid: number; cwd: string; env: NodeJS.ProcessEnv }
+let session: Session | undefined
+let cleanupInstalled = false
+
+function tearDown(log: LogFn) {
+    if (!session) return
+    const s = session
+    session = undefined
+    runProfile("down", s.binary, s.profile, s.pid, s.cwd, s.env, log)
+}
+
+function installCleanup(log: LogFn) {
+    if (cleanupInstalled) return
+    cleanupInstalled = true
+    process.on("exit", () => tearDown(log))
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
+        process.on(sig, () => {
+            tearDown(log)
+            process.kill(process.pid, sig) // re-raise so original signal semantics apply
+        })
+    }
+}
+
 // ── the extension ────────────────────────────────────────────────────
 
 export default function sharedserverPi(pi: ExtensionAPI): void {
     const notifyEnabled = env("PI_SHAREDSERVER_NOTIFY") !== "false"
+    const profile = env("PI_SHAREDSERVER_PROFILE") ?? "pi"
 
-    // Start/attach on session_start; release on session_shutdown("quit"). A session that
-    // reloads/resumes/forks keeps its processes and re-attaches, so guard against a
-    // second start within the same process.
     pi.on("session_start", (_event, ctx) => {
-        if (attached.length > 0) return
+        if (session) return // already up for this process
 
         const log = makeLog(ctx, notifyEnabled)
 
@@ -276,75 +181,49 @@ export default function sharedserverPi(pi: ExtensionAPI): void {
         const lockdir = env("SHAREDSERVER_LOCKDIR")
         if (lockdir) childEnv.SHAREDSERVER_LOCKDIR = lockdir
 
-        const configPath = resolveConfigPath(undefined, childEnv, ctx.cwd ?? process.cwd())
-        const servers = configPath ? loadServersFromFile(configPath, childEnv, log) : {}
-
-        // No servers is a normal state, not an error: nothing is configured. Stay quiet
-        // so an unconfigured install starts cleanly.
-        if (Object.keys(servers).length === 0) return
-
         const binary = resolveBinary(env("SHAREDSERVER_BIN"), childEnv, log)
         if (!binary) {
             log("error", "sharedserver binary not found; set $SHAREDSERVER_BIN or install it on PATH")
             return
         }
 
-        installCleanup()
+        const cwd = ctx.cwd ?? process.cwd()
+        const report = runProfile("up", binary, profile, process.pid, cwd, childEnv, log)
+        if (!report) return
+
+        for (const w of report.warnings ?? []) log("warn", w)
 
         const started: string[] = []
-        const reattached: string[] = []
-        for (const [name, spec] of Object.entries(servers)) {
-            // skipIfEnv: another host already launched this one for us. Don't start or
-            // attach — matches the Claude hook's behaviour.
-            if (spec.skipIfEnv && (childEnv[spec.skipIfEnv] ?? "") !== "") {
-                log("info", `skipping "${name}": ${spec.skipIfEnv} is set`)
-                continue
+        const attached: string[] = []
+        for (const s of report.servers) {
+            if (s.outcome === "started" || s.outcome === "attached") {
+                ;(s.outcome === "started" ? started : attached).push(s.name)
+                // Verify liveness shortly after — `up` may report success just before a crash.
+                scheduleHealthCheck(binary, s.name, childEnv, log, 2500)
+            } else if (s.outcome === "failed") {
+                log("error", `${s.name}: failed to start${s.reason ? ` (${s.reason})` : ""}`)
+            } else if (s.outcome === "skipped") {
+                log("info", `${s.name}: skipped${s.reason ? ` (${s.reason})` : ""}`)
             }
-            if (!spec.command && !spec.lazy) {
-                const keys = typeof spec === "object" && spec !== null ? Object.keys(spec) : []
-                log(
-                    "error",
-                    `server "${name}" has no \`command\` and is not lazy; skipping. ` +
-                        `Received keys: [${keys.join(", ")}]. ` +
-                        `Spec must be an object like { "command": "<bin>", "args": [...] }.`,
-                )
-                continue
-            }
-
-            const pre = preCheck(binary, name, childEnv)
-            const args = buildUseArgs(name, spec, process.pid)
-            const result = spawnSync(binary, args, { stdio: "pipe", env: childEnv })
-
-            if (result.error) {
-                log("error", `${name}: failed to spawn sharedserver (${result.error.message})`)
-                continue
-            }
-            if (result.status !== 0) {
-                const stderr = result.stderr?.toString().trim()
-                log("error", `${name}: sharedserver use exited ${result.status}${stderr ? ` (${stderr})` : ""}`)
-                continue
-            }
-
-            attached.push({ binary, name, env: childEnv })
-            if (pre === "stopped" || pre === "unknown") {
-                started.push(name)
-                log("info", `started sharedserver "${name}"`)
-            } else {
-                reattached.push(name)
-                log("info", `attached to running sharedserver "${name}" (was ${pre})`)
-            }
-            // Verify the wrapped binary is still alive 2.5s later. Catches the case where
-            // `sharedserver use` reports success but the underlying process crashes.
-            scheduleHealthCheck(binary, name, childEnv, log, 2500)
         }
+
+        // Nothing configured (no config / empty profile) is a normal, quiet state.
+        if (started.length === 0 && attached.length === 0) {
+            if (report.servers.length > 0) log("info", `profile "${profile}": nothing started`)
+            return
+        }
+
+        // Record teardown state and install exit hooks now that we hold references.
+        session = { binary, profile, pid: process.pid, cwd, env: childEnv }
+        installCleanup(log)
 
         const parts: string[] = []
         if (started.length) parts.push(`started ${started.join(", ")}`)
-        if (reattached.length) parts.push(`attached ${reattached.join(", ")}`)
-        if (parts.length) log("info", parts.join("; "))
+        if (attached.length) parts.push(`attached ${attached.join(", ")}`)
+        log("info", `profile "${profile}": ${parts.join("; ")}`)
     })
 
-    pi.on("session_shutdown", (event: SessionShutdownEvent) => {
-        if (event.reason === "quit") drainAttached()
+    pi.on("session_shutdown", (event: SessionShutdownEvent, ctx) => {
+        if (event.reason === "quit") tearDown(makeLog(ctx, notifyEnabled))
     })
 }

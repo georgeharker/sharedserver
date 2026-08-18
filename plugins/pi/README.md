@@ -3,11 +3,13 @@
 A [Pi](https://pi.dev) extension that manages shared backend processes through the
 [`sharedserver`](https://github.com/georgeharker/sharedserver) CLI.
 
-When a Pi session starts, the extension attaches to (or starts) each configured server
-with `sharedserver use`. When the session quits, it detaches with `sharedserver unuse`.
-Because `sharedserver` is reference-counted, multiple Pi instances — or other tools
-using the same name — share a single backend process. The server survives Pi restarts
-inside its grace period and shuts down automatically when the last client leaves.
+When a Pi session starts, the extension brings up this host's profile with
+`sharedserver up --profile pi`; when the session quits it releases it with
+`sharedserver down`. The `sharedserver` binary reads the config, expands `${VAR}`,
+and selects the profile's servers itself. Because `sharedserver` is reference-counted,
+multiple Pi instances — or other tools using the same name — share a single backend
+process. The server survives Pi restarts inside its grace period and shuts down
+automatically when the last client leaves.
 
 It is the Pi counterpart of sharedserver's Claude Code and OpenCode plugins and reads
 the **same** `servers.json`, so one config drives every client.
@@ -18,7 +20,8 @@ the **same** `servers.json`, so one config drives every client.
 ([crates.io](https://crates.io/crates/sharedserver)) is a small Rust CLI that runs a
 long-lived process on behalf of several clients with reference counting, a configurable
 grace period after the last client detaches, and a watcher that reaps dead clients. It
-exposes a tiny verb surface — `use`, `unuse`, `list`, `info`, `check` — and stores
+exposes a tiny verb surface — `use`, `unuse`, `up`, `down`, `list`, `info`, `check`
+(`up`/`down` bring a whole **profile** up or down) — and stores
 per-server state in lockfiles under `$XDG_RUNTIME_DIR/sharedserver/` (or
 `/tmp/sharedserver/`). This extension only ever speaks to that CLI.
 
@@ -95,15 +98,33 @@ per-project file *replaces* the global rather than merging):
 | `SHAREDSERVER_LOCKDIR` | Override `SHAREDSERVER_LOCKDIR` for child invocations. |
 | `SHAREDSERVER_CONFIG` | Explicit path to a `servers.json`, overriding discovery. |
 | `PI_SHAREDSERVER_NOTIFY` | Set to `false` to silence TUI notifications. |
+| `PI_SHAREDSERVER_PROFILE` | Profile this session brings up. Default `pi`. |
+
+## Profiles
+
+The extension brings up the **`pi`** profile (override with `$PI_SHAREDSERVER_PROFILE`).
+Add an optional top-level `profiles` map to `servers.json` to give each host its own
+slice:
+
+```jsonc
+{
+  "servers": { "chroma": { "command": "chroma" }, "watchman": { "lazy": true } },
+  "profiles": { "pi": ["chroma"] }
+}
+```
+
+A server named by no profile (`watchman` above) is **universal** and comes up for every
+host. A config with no `profiles` brings up every server, exactly as before — nothing you
+already have needs to change.
 
 ## Lifecycle
 
-- **`session_start`** → for each configured server, `sharedserver use … -- <command argv>`
-  (refcounted; shared across clients). A 2.5s health check verifies each wrapped process
-  is still alive.
-- **`session_shutdown` (`reason === "quit"`)** → `sharedserver unuse` for each. A
-  reload/resume/fork keeps the processes and re-attaches. Process exit and
-  `SIGINT`/`SIGTERM`/`SIGHUP` also drain cleanly.
+- **`session_start`** → `sharedserver up --profile pi --json` selects and starts this
+  host's servers (refcounted; shared across clients). A 2.5s health check then verifies
+  each server the report said started/attached is still alive.
+- **`session_shutdown` (`reason === "quit"`)** → `sharedserver down --profile pi`
+  re-resolves the same selection and releases it. A reload/resume/fork keeps the processes
+  and re-attaches. Process exit and `SIGINT`/`SIGTERM`/`SIGHUP` also drain cleanly.
 
 No servers configured is a normal, quiet state — an unconfigured install starts cleanly.
 
