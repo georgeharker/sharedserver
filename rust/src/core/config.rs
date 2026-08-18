@@ -255,9 +255,12 @@ fn referenced_servers(cfg: &Config) -> BTreeSet<&str> {
 
 /// Select the servers to act on for `profile`: the profile's members plus every
 /// universal (profile-less) server, resolved to their specs in a deterministic
-/// (name-sorted) order so `up` and `down` agree. Unknown profiles and dangling
-/// members produce warnings, not errors.
-pub fn select(cfg: &Config, profile: &str) -> Selection {
+/// (name-sorted) order so `up` and `down` agree. Dangling profile members always
+/// warn (a real config error). A *missing* profile warns only when
+/// `warn_missing_profile` is set: a human typing `up --profile typo` wants the
+/// warning, but a plugin asking for its own host profile that the user never
+/// defined is a normal, back-compat case that should stay silent.
+pub fn select(cfg: &Config, profile: &str, warn_missing_profile: bool) -> Selection {
     let mut warnings = Vec::new();
     let referenced = referenced_servers(cfg);
 
@@ -273,10 +276,9 @@ pub fn select(cfg: &Config, profile: &str) -> Selection {
     let members: Vec<&str> = match cfg.profiles.get(profile) {
         Some(list) => list.iter().map(String::as_str).collect(),
         None => {
-            // No such profile. If profiles exist at all, a typo is likely worth
-            // flagging; with no profiles defined this is pure back-compat and
-            // stays silent.
-            if !cfg.profiles.is_empty() {
+            // No such profile. Flag it only for the CLI, and only when profiles
+            // exist at all (a config with none is pure back-compat).
+            if warn_missing_profile && !cfg.profiles.is_empty() {
                 warnings.push(format!(
                     "unknown profile '{profile}'; bringing up only universal (profile-less) servers"
                 ));
@@ -401,23 +403,32 @@ mod tests {
     #[test]
     fn selects_profile_members_plus_universal() {
         // watchman is in no profile => universal, comes up for every profile.
-        let sel = select(&cfg_for_selection(), "opencode");
+        let sel = select(&cfg_for_selection(), "opencode", true);
         let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["chroma", "watchman"]);
         assert!(sel.warnings.is_empty());
 
-        let sel = select(&cfg_for_selection(), "pi");
+        let sel = select(&cfg_for_selection(), "pi", true);
         let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["pi-thing", "watchman"]);
     }
 
     #[test]
     fn unknown_profile_yields_universals_and_a_warning() {
-        let sel = select(&cfg_for_selection(), "nope");
+        let sel = select(&cfg_for_selection(), "nope", true);
         let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["watchman"]);
         assert_eq!(sel.warnings.len(), 1);
         assert!(sel.warnings[0].contains("unknown profile 'nope'"));
+    }
+
+    #[test]
+    fn missing_profile_is_silent_when_not_warning() {
+        // Plugin path: a missing host profile brings up universals with no warning.
+        let sel = select(&cfg_for_selection(), "nope", false);
+        let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["watchman"]);
+        assert!(sel.warnings.is_empty());
     }
 
     #[test]
@@ -429,20 +440,22 @@ mod tests {
             &no_env,
         )
         .unwrap();
-        let sel = select(&cfg, "opencode");
+        let sel = select(&cfg, "opencode", true);
         let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["a", "b"]);
         assert!(sel.warnings.is_empty());
     }
 
     #[test]
-    fn dangling_profile_member_warns_and_skips() {
+    fn dangling_profile_member_warns_even_when_missing_profile_silent() {
+        // A dangling member is a real config error and warns regardless of the
+        // missing-profile suppression flag.
         let cfg = parse_config(
             r#"{ "servers": { "a": { "command": "a" } }, "profiles": { "p": ["a", "ghost"] } }"#,
             &no_env,
         )
         .unwrap();
-        let sel = select(&cfg, "p");
+        let sel = select(&cfg, "p", false);
         let names: Vec<_> = sel.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["a"]);
         assert_eq!(sel.warnings.len(), 1);

@@ -27,8 +27,9 @@ pub fn execute(
     pid: Option<i32>,
     config: Option<&str>,
     cwd: Option<&str>,
+    profile_optional: bool,
 ) -> Result<()> {
-    let Some(sel) = super::up::resolve_selection(profile, config, cwd)? else {
+    let Some(sel) = super::up::resolve_selection(profile, config, cwd, profile_optional)? else {
         print_warning("no sharedserver config found; nothing to release");
         return Ok(());
     };

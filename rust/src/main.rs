@@ -94,6 +94,10 @@ enum Commands {
         /// Directory to resolve the per-project config from (defaults to cwd)
         #[arg(long)]
         cwd: Option<String>,
+        /// Treat a missing profile as normal (bring up only universal servers,
+        /// no warning). Plugins asking for their own host profile pass this.
+        #[arg(long)]
+        profile_optional: bool,
     },
     /// Release every server in a profile (the inverse of `up`).
     Down {
@@ -109,6 +113,9 @@ enum Commands {
         /// Directory to resolve the per-project config from (defaults to cwd)
         #[arg(long)]
         cwd: Option<String>,
+        /// Treat a missing profile as normal (no warning); pair with `up`.
+        #[arg(long)]
+        profile_optional: bool,
     },
     /// List all servers
     List {
@@ -242,19 +249,28 @@ fn main() -> Result<()> {
             grace_period,
             config,
             cwd,
+            profile_optional,
         } => commands::up::execute(
             &profile,
             pid,
             &grace_period,
             config.as_deref(),
             cwd.as_deref(),
+            profile_optional,
         ),
         Commands::Down {
             profile,
             pid,
             config,
             cwd,
-        } => commands::down::execute(&profile, pid, config.as_deref(), cwd.as_deref()),
+            profile_optional,
+        } => commands::down::execute(
+            &profile,
+            pid,
+            config.as_deref(),
+            cwd.as_deref(),
+            profile_optional,
+        ),
         Commands::List { json } => commands::list::execute(json),
         Commands::Info { name, json } => commands::info::execute(&name, json),
         Commands::Check { name } => commands::check::execute(&name),

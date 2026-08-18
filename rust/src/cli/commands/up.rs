@@ -27,6 +27,7 @@ pub(crate) fn resolve_selection(
     profile: &str,
     config: Option<&str>,
     cwd: Option<&str>,
+    profile_optional: bool,
 ) -> Result<Option<Selection>> {
     let cwd = resolve_cwd(cwd);
     let path = match discover_config_path(config.map(Path::new), &cwd) {
@@ -34,7 +35,9 @@ pub(crate) fn resolve_selection(
         None => return Ok(None),
     };
     let cfg = load_config(&path)?;
-    let sel = select(&cfg, profile);
+    // `--profile-optional` (the plugin path) suppresses the "unknown profile"
+    // warning: a host asking for its own, user-undefined profile is normal.
+    let sel = select(&cfg, profile, !profile_optional);
     for w in &sel.warnings {
         print_warning(w);
     }
@@ -123,8 +126,9 @@ pub fn execute(
     grace_default: &str,
     config: Option<&str>,
     cwd: Option<&str>,
+    profile_optional: bool,
 ) -> Result<()> {
-    let Some(sel) = resolve_selection(profile, config, cwd)? else {
+    let Some(sel) = resolve_selection(profile, config, cwd, profile_optional)? else {
         print_warning("no sharedserver config found; nothing to bring up");
         return Ok(());
     };
