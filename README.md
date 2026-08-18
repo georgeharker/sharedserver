@@ -116,6 +116,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 | `unuse <name>` | Detach from server |
 | `up --profile <p> [--pid <pid>]` | Bring up every server in a profile (see [Profiles](#profiles)) |
 | `down --profile <p> [--pid <pid>]` | Release every server in a profile |
+| `config <register\|unregister\|lookup\|list\|show\|validate\|profile>` | Edit/inspect server defs & profiles (see [Self-define](#self-define)) |
 | `list` | Show all managed servers |
 | `info <name> [--json]` | Server details (formatted or JSON) |
 | `check <name>` | Test if server exists (exit: 0=active, 1=grace, 2=stopped, 3=defunct) |
@@ -181,6 +182,37 @@ sharedserver down --profile opencode --pid $$   # releases them
   doesn't exist. Pass `--profile-optional` to treat a missing profile as normal
   (bring up only universal servers, no warning) — for a program asking for its
   own host profile that the user may not have defined.
+
+### Self-define
+
+Rather than hand-editing `servers.json`, a program (or you) can register server
+defs into it as scoped, atomic JSON edits — so a plugin in any repo can define
+the servers it needs and tag them into its host profile:
+
+```bash
+# Define a server owned by a scope and tag it into a profile — one atomic edit.
+sharedserver config register --scope my-plugin chroma --profile opencode -- chroma run
+
+# Coordination pattern: check first, define only if nobody has (still tags the profile).
+sharedserver config lookup chroma --json
+sharedserver config register --scope my-plugin chroma --if-absent --profile opencode -- chroma run
+
+# Tag an existing server into a profile without redefining it.
+sharedserver config profile add opencode watchman
+
+# Withdraw everything a scope registered (cascades out of every profile).
+sharedserver config unregister --scope my-plugin
+```
+
+- **Scoped & attributable.** Each entry is stamped with its `--scope`. A name
+  already owned by a *different* scope is a **hard error** — `lookup` then
+  `register --if-absent` is how well-behaved plugins cooperatively avoid it.
+- **Atomic & lossless.** Edits are JSON operations on the single `servers.json`
+  under a lock; keys the tool doesn't model are preserved.
+- **Profiles union.** Many callers may add the same server to the same profile
+  without clashing; `unregister` cascades a removed server out of every profile.
+- `config lookup` / `list` / `show` (add `--json`) inspect; `config validate`
+  flags dangling profile members.
 
 ### Shell Completions
 

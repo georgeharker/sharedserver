@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`config` self-define verbs.** Programs (or you) can register server defs into
+  `servers.json` as scoped, atomic JSON edits instead of hand-editing the file:
+  `config register --scope <id> <name> [--profile P]... [--if-absent] -- <cmd>`
+  defines a server and tags it into profiles; `unregister` removes a scope's defs
+  and cascades them out of every profile; `profile add`/`remove` tag membership
+  directly; `lookup`/`list`/`show` (with `--json`) inspect; `validate` flags
+  dangling profile members. Each entry is stamped with its owning `_scope`: a
+  cross-scope name clash is a hard error at register time, the same scope
+  overwrites idempotently, and profile membership unions. Edits are lossless
+  (unknown keys preserved) and taken under a per-file lock. The intended
+  lifecycle is `lookup` → `register --if-absent` → `up`, which lets plugins in
+  other repos self-define cooperatively without clashing.
 - **Profiles and the `up`/`down` verbs.** `servers.json` gains an optional
   top-level `profiles` map (`{ "<profile>": ["<server>", ...] }`) that groups
   servers, and the binary now owns config parsing: it reads the file, expands
