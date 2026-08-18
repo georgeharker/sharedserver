@@ -1,4 +1,5 @@
 pub mod config;
+pub mod config_edit;
 pub mod duration;
 pub mod health;
 pub mod lockfile;

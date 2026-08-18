@@ -17,6 +17,7 @@ EVERYDAY COMMANDS:
   unuse       Detach from a server
   up          Bring up every server in a profile (from the config)
   down        Release every server in a profile
+  config      Register/inspect server defs and profiles (self-define)
   list        Show all running servers
   info        Get detailed server information
   check       Check if server is running
@@ -124,6 +125,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Edit or inspect the servers.json config (the self-define surface):
+    /// register/unregister scoped server defs and tag them into profiles.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
     /// List all servers
     List {
         /// Output as JSON (for programmatic use)
@@ -153,6 +160,122 @@ enum Commands {
     Admin {
         #[command(subcommand)]
         command: AdminCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Register (or overwrite) a scoped server def; optionally tag it into profiles
+    Register {
+        /// Owning scope id (e.g. your plugin or host name)
+        #[arg(long)]
+        scope: String,
+        /// Server name
+        name: String,
+        /// Profile(s) to add this server to (repeatable, union)
+        #[arg(long = "profile")]
+        profiles: Vec<String>,
+        /// Only register if the name doesn't already exist (still unions profiles)
+        #[arg(long)]
+        if_absent: bool,
+        /// Grace period, e.g. "30m", "1h"
+        #[arg(long)]
+        grace_period: Option<String>,
+        /// Env vars in KEY=VALUE form (repeatable)
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env_vars: Vec<String>,
+        /// Log file path for the server's stdout/stderr
+        #[arg(long)]
+        log_file: Option<String>,
+        /// Optional metadata string
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Attach-only (no command needed)
+        #[arg(long)]
+        lazy: bool,
+        /// Config file to edit (default: discovered, else the global one)
+        #[arg(long)]
+        config: Option<String>,
+        /// Server command and arguments
+        #[arg(last = true)]
+        command: Vec<String>,
+    },
+    /// Remove a scope's server def(s): a specific name, or all of them
+    Unregister {
+        /// Owning scope id
+        #[arg(long)]
+        scope: String,
+        /// Server name (omit to remove every server owned by this scope)
+        name: Option<String>,
+        /// Config file to edit (default: discovered, else the global one)
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Look up one server: its def and the profiles it belongs to
+    Lookup {
+        /// Server name
+        name: String,
+        /// Config file (default: discovered)
+        #[arg(long)]
+        config: Option<String>,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List registered servers and profiles
+    List {
+        /// Config file (default: discovered)
+        #[arg(long)]
+        config: Option<String>,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print the whole config document
+    Show {
+        /// Config file (default: discovered)
+        #[arg(long)]
+        config: Option<String>,
+        /// Emit compact JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check for dangling profile members and structural issues
+    Validate {
+        /// Config file (default: discovered)
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Manage profile membership directly
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommands {
+    /// Add server(s) to a profile (union; a server need not exist yet)
+    Add {
+        /// Profile name
+        profile: String,
+        /// Server name(s)
+        #[arg(required = true)]
+        names: Vec<String>,
+        /// Config file to edit (default: discovered, else the global one)
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Remove server(s) from a profile (drops the profile if it becomes empty)
+    Remove {
+        /// Profile name
+        profile: String,
+        /// Server name(s)
+        #[arg(required = true)]
+        names: Vec<String>,
+        /// Config file to edit (default: discovered, else the global one)
+        #[arg(long)]
+        config: Option<String>,
     },
 }
 
@@ -282,6 +405,60 @@ fn main() -> Result<()> {
             profile_optional,
             json,
         ),
+        Commands::Config { command } => match command {
+            ConfigCommands::Register {
+                scope,
+                name,
+                profiles,
+                if_absent,
+                grace_period,
+                env_vars,
+                log_file,
+                metadata,
+                lazy,
+                config,
+                command,
+            } => commands::config::register(
+                &scope,
+                &name,
+                &command,
+                grace_period.as_deref(),
+                &env_vars,
+                log_file.as_deref(),
+                metadata.as_deref(),
+                lazy,
+                &profiles,
+                if_absent,
+                config.as_deref(),
+            ),
+            ConfigCommands::Unregister {
+                scope,
+                name,
+                config,
+            } => commands::config::unregister(&scope, name.as_deref(), config.as_deref()),
+            ConfigCommands::Lookup { name, config, json } => {
+                commands::config::lookup(&name, config.as_deref(), json)
+            }
+            ConfigCommands::List { config, json } => {
+                commands::config::list(config.as_deref(), json)
+            }
+            ConfigCommands::Show { config, json } => {
+                commands::config::show(config.as_deref(), json)
+            }
+            ConfigCommands::Validate { config } => commands::config::validate(config.as_deref()),
+            ConfigCommands::Profile { command } => match command {
+                ProfileCommands::Add {
+                    profile,
+                    names,
+                    config,
+                } => commands::config::profile_add(&profile, &names, config.as_deref()),
+                ProfileCommands::Remove {
+                    profile,
+                    names,
+                    config,
+                } => commands::config::profile_remove(&profile, &names, config.as_deref()),
+            },
+        },
         Commands::List { json } => commands::list::execute(json),
         Commands::Info { name, json } => commands::info::execute(&name, json),
         Commands::Check { name } => commands::check::execute(&name),

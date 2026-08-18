@@ -1,4 +1,5 @@
 pub mod check;
+pub mod config;
 pub mod debug;
 pub mod decref;
 pub mod doctor;
