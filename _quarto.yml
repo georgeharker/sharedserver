@@ -14,6 +14,13 @@ project:
     - "!docs/SHELL_WRAPPER_DESIGN.md"
     - "!docs/CHANGELOG.md"
 
+  # Logo assets referenced by the pages. embed-resources inlines images into
+  # each page, but the site favicon/logo/social image are read as files, so
+  # ship the image tree.
+  resources:
+    - docs/images/*.png
+    - docs/images/*.svg
+
 # gfm_auto_identifiers makes heading anchors match GitHub's slugs, which the
 # docs' cross-links use. Keep pandoc's full markdown reader otherwise —
 # `from: gfm` breaks Quarto's navigation divs.
@@ -21,9 +28,12 @@ from: markdown+gfm_auto_identifiers
 
 website:
   title: "sharedserver"
+  favicon: docs/images/sharedserver-logo.svg
+  image: docs/images/sharedserver-logo@2x.png
   search: true
   sidebar:
     style: docked
+    logo: docs/images/sharedserver-logo.svg
     tools:
       - icon: github
         href: https://github.com/georgeharker/sharedserver

@@ -1,6 +1,14 @@
-# sharedserver
+<p align="center">
+  <img src="docs/images/sharedserver-logo@2x.png" alt="sharedserver logo" width="200">
+</p>
 
-[![crates][crates]](https://crates.io/crates/sharedserver)
+<h1 align="center">sharedserver</h1>
+
+<p align="center"><em>one warm server process, shared across every client — reference-counted, with grace periods and dead-client detection</em></p>
+
+<p align="center">
+  <a href="https://crates.io/crates/sharedserver"><img src="https://img.shields.io/crates/v/sharedserver.svg" alt="crates.io"></a>
+</p>
 
 A shared process manager with reference counting, grace periods, and dead-client detection. Use it standalone from the command line or integrate it with Neovim for automatic server lifecycle management.
 
@@ -564,5 +572,3 @@ See [DEBUGGING.md](docs/DEBUGGING.md) for the full troubleshooting guide, and [E
 ## License
 
 MIT
-
-[crates]: https://img.shields.io/crates/v/sharedserver.svg
