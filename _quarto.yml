@@ -2,7 +2,7 @@ project:
   type: website
   render:
     - index.md
-    - README.md   # README files must be listed explicitly; globs skip them
+    - README.md # README files must be listed explicitly; globs skip them
     - EXAMPLES.md
     - CHANGELOG.md
     - docs/*.md
@@ -50,6 +50,7 @@ website:
           - docs/NEOVIM.md
           - docs/OPENCODE.md
           - docs/CLAUDE_CODE.md
+          - docs/PI.md
           - docs/DEBUGGING.md
       - section: "Reference"
         contents:

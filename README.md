@@ -40,10 +40,10 @@ With cargo, if you have a toolchain:
 cargo install sharedserver
 ```
 
-> **Using the Claude Code or OpenCode plugin?** You don't need to install anything
-> by hand. Those plugins fetch a matching `sharedserver` on first use when one
-> isn't already present — see [Claude Code](docs/CLAUDE_CODE.md) and
-> [OpenCode](docs/OPENCODE.md).
+> **Using the Claude Code, OpenCode, or Pi plugin?** You don't need to install
+> anything by hand. Those plugins fetch a matching `sharedserver` on first use
+> when one isn't already present — see [Claude Code](docs/CLAUDE_CODE.md),
+> [OpenCode](docs/OPENCODE.md), and [Pi](docs/PI.md).
 
 Or build from source:
 
@@ -119,7 +119,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 **Everyday commands:**
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `use <name> [-- <cmd> [args...]]` | Attach to server (starts if needed) |
 | `unuse <name>` | Detach from server |
 | `up --profile <p> [--pid <pid>]` | Bring up every server in a profile (see [Profiles](#profiles)) |
@@ -133,7 +133,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 **Admin commands** (troubleshooting):
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `admin start <name> -- <cmd>` | Manually start a server with no clients (refcount 0) |
 | `admin stop <name> [--force] [--timeout DUR]` | SIGTERM, then wait for full teardown (`--force` escalates to SIGKILL) |
 | `admin incref <name> --pid <pid>` | Manual refcount increment |
@@ -145,6 +145,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 See [Stopping a server](#stopping-a-server-stop-vs-stop---force-vs-kill) for when to use each.
 
 **PID behavior:**
+
 - User commands (`use`, `unuse`): `--pid` defaults to parent process (the caller)
 - Admin commands: `--pid` defaults to current process
 
@@ -292,7 +293,7 @@ deleting lockfiles themselves; `kill` is the exception (see below).
 ### Stopping a server: `stop` vs `stop --force` vs `kill`
 
 | | First signal | Graceful wait | Escalates to SIGKILL | Kills the watcher | Deletes lockfiles |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | `stop` | SIGTERM | yes (`--timeout`) | no — errors, leaves state intact | no | watcher does |
 | `stop --force` | SIGTERM | yes (`--timeout`) | yes, then waits again | no | watcher does |
 | `kill` | SIGKILL | none | n/a (starts at SIGKILL) | **yes** | **itself** |
@@ -353,6 +354,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```
 
 The plugin searches for the `sharedserver` binary in order:
+
 1. `<plugin-dir>/rust/target/release/sharedserver`
 2. `~/.local/bin/sharedserver`
 3. `/usr/local/bin/sharedserver`
@@ -365,11 +367,13 @@ the locations listed.
 ### What the Plugin Does
 
 On `VimEnter`:
+
 - Non-lazy servers: checks if running → attaches (incref) or starts
 - Lazy servers: attaches if running, otherwise does nothing
 - If a `profile` is configured, also runs `sharedserver up --profile <name>`
 
 On `VimLeave`:
+
 - Automatically decrements refcount for all attached servers
 - Runs `sharedserver down --profile <name>` if a `profile` is configured
 
@@ -408,7 +412,7 @@ require("sharedserver").setup({
 ### Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `:ServerStart <name>` | Start a named server |
 | `:ServerStop <name>` | Stop a named server |
 | `:ServerRestart <name>` | Restart a named server |
@@ -419,6 +423,7 @@ require("sharedserver").setup({
 | `:ServerDown [profile]` | Release a profile |
 
 `:ServerStatus` shows a floating window with status indicators:
+
 - `●` Running (active or in grace period)
 - `○` Stopped
 
@@ -451,19 +456,20 @@ Verifies binary installation, lock directory access, and server status.
 
 ---
 
-## Editor Integrations: OpenCode & Claude Code
+## Editor Integrations: OpenCode, Claude Code & Pi
 
-OpenCode and Claude Code have the same lifecycle problem Neovim does: several
-editor sessions want to share one backend process. Two sibling plugins wire this
-CLI into their lifecycles — `sharedserver use` on session start, `sharedserver
-unuse` on session end — so servers come up with the editor and tear down cleanly
-when the last session leaves. Both live here as plain in-tree directories under
-`plugins/`:
+OpenCode, Claude Code, and Pi have the same lifecycle problem Neovim does:
+several editor sessions want to share one backend process. Three sibling plugins
+wire this CLI into their lifecycles — `sharedserver use` on session start,
+`sharedserver unuse` on session end — so servers come up with the editor and tear
+down cleanly when the last session leaves. All live here as plain in-tree
+directories under `plugins/`:
 
 | Plugin | Host | Directory | Guide | Published as |
-|--------|------|-----------|-------|--------------|
+| -------- | ------ | ----------- | ------- | -------------- |
 | [opencode-sharedserver](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode) | [OpenCode](https://opencode.ai) | `plugins/opencode` | [docs/OPENCODE.md](docs/OPENCODE.md) | npm [`@geohar/opencode-sharedserver`](https://www.npmjs.com/package/@geohar/opencode-sharedserver) |
 | [claude-sharedserver](https://github.com/georgeharker/sharedserver/tree/main/plugins/claude) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | `plugins/claude` | [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | Claude Code plugin marketplace |
+| [pi-sharedserver](https://github.com/georgeharker/sharedserver/tree/main/plugins/pi) | [Pi](https://github.com/badlogic/pi-mono) | `plugins/pi` | [docs/PI.md](docs/PI.md) | npm [`@geohar/pi-sharedserver`](https://www.npmjs.com/package/@geohar/pi-sharedserver) |
 
 Their per-server config (`command`, `args`, `env`, `gracePeriod`, `logFile`,
 `metadata`, `lazy`) is intentionally compatible — a `servers` map copies across
@@ -533,7 +539,7 @@ git add plugins/opencode && git commit -m "feat(opencode): ..."
 ### Why Not systemd/launchd?
 
 | System Service | sharedserver |
-|----------------|--------------|
+| ---------------- | -------------- |
 | Always running | Starts when needed, stops when done |
 | Requires root/system config | User-space, no sudo |
 | Global config files | Per-project config |

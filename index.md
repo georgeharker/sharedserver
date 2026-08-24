@@ -8,11 +8,12 @@ client needs it and shut down automatically after the last one leaves.
 Start with the [overview and quick start](README.md), or jump in:
 
 | I want to… | Document |
-|------------|----------|
+| ------------ | ---------- |
 | Set up servers in Neovim, with ready-made configs | [Configuration Examples](EXAMPLES.md) |
 | Go deeper on the Neovim plugin (API, status UI, lazy loading) | [Neovim Integration Guide](docs/NEOVIM.md) |
 | Share servers across OpenCode sessions | [OpenCode Integration Guide](docs/OPENCODE.md) |
 | Share servers across Claude Code sessions | [Claude Code Integration Guide](docs/CLAUDE_CODE.md) |
+| Share servers across Pi sessions | [Pi Integration Guide](docs/PI.md) |
 | Debug a server that won't start | [Debugging Guide](docs/DEBUGGING.md) |
 | See what changed between releases | [Changelog](CHANGELOG.md) |
 
