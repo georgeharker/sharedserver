@@ -50,6 +50,12 @@ pub struct ClientsLock {
     pub clients: HashMap<i32, ClientInfo>,
 }
 
+impl Default for ClientsLock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientsLock {
     pub fn new() -> Self {
         Self {
@@ -165,7 +171,7 @@ where
 /// Read server lockfile with shared lock (allows concurrent reads)
 pub fn read_server_lock(name: &str) -> Result<ServerLock> {
     let path = server_lockfile_path(name)?;
-    with_shared_lock(&path, |file| read_json(file))
+    with_shared_lock(&path, read_json)
 }
 
 /// Write server lockfile
@@ -177,7 +183,7 @@ pub fn write_server_lock(name: &str, lock: &ServerLock) -> Result<()> {
 /// Read clients lockfile with shared lock (allows concurrent reads)
 pub fn read_clients_lock(name: &str) -> Result<ClientsLock> {
     let path = clients_lockfile_path(name)?;
-    with_shared_lock(&path, |file| read_json(file))
+    with_shared_lock(&path, read_json)
 }
 
 /// Write clients lockfile

@@ -12,6 +12,7 @@
 bin/sharedserver-watcher
 bin/*.o
 /.codecompanion
+/.pi/
 
 # Quarto site build
 /_site/

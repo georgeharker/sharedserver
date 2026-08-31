@@ -164,7 +164,7 @@ fn check_server(name: &str) -> Result<()> {
             let mut dead_clients = Vec::new();
 
             // Check each client PID
-            for (pid, _info) in &clients_lock.clients {
+            for pid in clients_lock.clients.keys() {
                 if !is_process_alive(*pid) {
                     dead_clients.push(*pid);
                 }
