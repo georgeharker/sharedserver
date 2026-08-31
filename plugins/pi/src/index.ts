@@ -210,8 +210,7 @@ export default function sharedserverPi(pi: ExtensionAPI): void {
                 return
             }
             const run = (cliArgs: string[]) => pi.exec(binary, cliArgs, { env: childEnv })
-            const emit = (content: string) =>
-                pi.sendMessage({ customType: "sharedserver", content, display: true })
+            const emit = (content: string) => pi.sendMessage({ customType: "sharedserver", content, display: true })
 
             switch (verb) {
                 case "status": {
