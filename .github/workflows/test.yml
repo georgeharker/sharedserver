@@ -21,7 +21,7 @@ jobs:
         name: Run Lua unit tests
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Setup Lua environment for Neovim
               uses: notomo/action-setup-nvim-lua@v2

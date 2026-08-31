@@ -27,7 +27,7 @@ jobs:
     # release.yml already gives publish jobs id-token: write (what OIDC needs).
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Trusted publishing: exchange the GitHub OIDC token for a 30-minute crates.io
       # token, so no long-lived CARGO_REGISTRY_TOKEN secret exists to leak.
