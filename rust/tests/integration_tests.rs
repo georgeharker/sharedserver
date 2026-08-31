@@ -838,3 +838,200 @@ fn test_admin_kill_already_stopped() {
 
     cleanup_lock_files(server_name);
 }
+
+/// A real, live second client PID: the watcher prunes dead clients every
+/// 500ms, so a made-up PID would vanish from the client map mid-test. Spawn a
+/// short-lived `sleep` and attach as that process.
+fn spawn_live_client() -> std::process::Child {
+    std::process::Command::new("sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn live client")
+}
+
+#[test]
+#[serial]
+fn test_decref_error_lists_attached_clients() {
+    // Discoverability: when a decref targets a PID that was never attached, the
+    // error must name the PIDs that ARE holding refs (sorted), so the caller
+    // can retry with `--pid` instead of guessing.
+    let server_name = "test_decref_lists";
+    cleanup_lock_files(server_name);
+
+    let long_running = get_test_helper_path("long_running.sh");
+    let test_pid = std::process::id().to_string();
+
+    let out = run_command(&[
+        "use",
+        server_name,
+        "--pid",
+        &test_pid,
+        "--grace-period",
+        "30s",
+        "--",
+        long_running.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "use should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    thread::sleep(Duration::from_secs(2));
+
+    // Attach a second, distinct live client.
+    let mut second = spawn_live_client();
+    let second_pid = second.id().to_string();
+    let inc = run_command(&["admin", "incref", server_name, "--pid", &second_pid]);
+    assert!(
+        inc.status.success(),
+        "second incref should succeed: {}",
+        String::from_utf8_lossy(&inc.stderr)
+    );
+
+    // Decref a PID that was never attached: the failure must list both live
+    // client PIDs so `--pid` becomes usable without guessing.
+    let dec = run_command(&["admin", "decref", server_name, "--pid", "999999"]);
+    assert!(
+        !dec.status.success(),
+        "decref of an unattached PID should fail"
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&dec.stdout),
+        String::from_utf8_lossy(&dec.stderr)
+    );
+    assert!(
+        text.contains("was not attached"),
+        "error should say the PID was not attached, got: {}",
+        text
+    );
+    assert!(
+        text.contains("attached clients:"),
+        "error should name the attached clients, got: {}",
+        text
+    );
+    assert!(
+        text.contains(&test_pid) && text.contains(&second_pid),
+        "error should list both live client PIDs ({} and {}), got: {}",
+        test_pid,
+        second_pid,
+        text
+    );
+
+    let _ = second.kill();
+    let _ = second.wait();
+    run_command(&["admin", "kill", server_name]);
+    thread::sleep(Duration::from_secs(1));
+    cleanup_lock_files(server_name);
+}
+
+#[test]
+#[serial]
+fn test_down_detach_all() {
+    // `down --detach-all` releases EVERY client's refs, not just the caller's
+    // PID: the refcount drops to 0, the server enters grace (alive, not killed
+    // — no signals are sent), and the client map is emptied.
+    let server_name = "test_detach_all_srv";
+    let profile = "test_detach_all_prof";
+    cleanup_lock_files(server_name);
+
+    // An explicit config so the test never touches the user's real servers.json.
+    let config_path = test_lockdir().join("detach-all-servers.json");
+    let long_running = get_test_helper_path("long_running.sh");
+    let config = serde_json::json!({
+        "servers": {
+            server_name: {
+                "command": long_running.to_str().unwrap(),
+                "gracePeriod": "30s",
+            },
+        },
+        "profiles": {
+            profile: [server_name],
+        },
+    });
+    fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap())
+        .expect("failed to write test config");
+
+    let test_pid = std::process::id().to_string();
+    let up = run_command(&[
+        "up",
+        "--profile",
+        profile,
+        "--pid",
+        &test_pid,
+        "--config",
+        config_path.to_str().unwrap(),
+    ]);
+    assert!(
+        up.status.success(),
+        "up should succeed: {}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    thread::sleep(Duration::from_secs(2));
+
+    // A second live client holds a ref the caller can't release with --pid.
+    let mut second = spawn_live_client();
+    let second_pid = second.id().to_string();
+    let inc = run_command(&["admin", "incref", server_name, "--pid", &second_pid]);
+    assert!(
+        inc.status.success(),
+        "second incref should succeed: {}",
+        String::from_utf8_lossy(&inc.stderr)
+    );
+
+    let info = run_command(&["info", server_name, "--json"]);
+    assert!(
+        String::from_utf8_lossy(&info.stdout).contains("\"refcount\": 2"),
+        "precondition: refcount should be 2"
+    );
+
+    // The normal `down` from an unrelated PID would fail to detach; --detach-all
+    // must release everyone and hand the server to grace.
+    let down = run_command(&[
+        "down",
+        "--profile",
+        profile,
+        "--detach-all",
+        "--config",
+        config_path.to_str().unwrap(),
+    ]);
+    assert!(
+        down.status.success(),
+        "down --detach-all should succeed: {}\n{}",
+        String::from_utf8_lossy(&down.stdout),
+        String::from_utf8_lossy(&down.stderr)
+    );
+
+    // Refcount is 0 with an empty client map, and the server is in grace
+    // (alive — `check` exits 1) rather than torn down.
+    let clients_lock = test_lockdir().join(format!("{}.clients.json", server_name));
+    let clients: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&clients_lock).expect("clients lock"))
+            .expect("clients lock JSON");
+    assert_eq!(
+        clients["refcount"], 0,
+        "refcount must be 0 after --detach-all"
+    );
+    assert_eq!(
+        clients["clients"].as_object().map(|m| m.len()),
+        Some(0),
+        "client map must be empty after --detach-all"
+    );
+
+    let chk = run_command(&["check", server_name]);
+    assert_eq!(
+        chk.status.code(),
+        Some(1),
+        "after --detach-all the server should be in grace (exit 1), not stopped"
+    );
+
+    let _ = second.kill();
+    let _ = second.wait();
+    run_command(&["admin", "kill", server_name]);
+    thread::sleep(Duration::from_secs(1));
+    cleanup_lock_files(server_name);
+    let _ = fs::remove_file(&config_path);
+}

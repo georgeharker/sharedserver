@@ -112,6 +112,13 @@ enum Commands {
         /// Client PID whose refs to release (defaults to parent process)
         #[arg(long)]
         pid: Option<i32>,
+        /// Detach EVERY client from each server, not just this PID: the
+        /// refcount drops to 0 and each server enters its grace period. The
+        /// gentle "force" — no signals are sent; the watcher's grace countdown
+        /// still owns the actual shutdown. Useful when `down` can't release
+        /// because the refs belong to other (possibly dead) PIDs.
+        #[arg(long, conflicts_with = "pid")]
+        detach_all: bool,
         /// Explicit config file, overriding the discovery chain
         #[arg(long)]
         config: Option<String>,
@@ -393,6 +400,7 @@ fn main() -> Result<()> {
         Commands::Down {
             profile,
             pid,
+            detach_all,
             config,
             cwd,
             profile_optional,
@@ -400,6 +408,7 @@ fn main() -> Result<()> {
         } => commands::down::execute(
             &profile,
             pid,
+            detach_all,
             config.as_deref(),
             cwd.as_deref(),
             profile_optional,

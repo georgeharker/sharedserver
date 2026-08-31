@@ -4,6 +4,11 @@
 //! symmetrically: a server another host owns was never attached, so it is not
 //! detached here either.
 //!
+//! `--detach-all` switches the per-server release from "this PID's refs" to
+//! "everyone's refs": the whole client map is cleared, the refcount hits 0,
+//! and each server enters its grace period. No signals — the gentle tier
+//! between a normal `down` and `admin stop`.
+//!
 //! `--json` mirrors `up --json`: one machine-readable object on stdout, nothing
 //! else.
 
@@ -46,6 +51,7 @@ struct DownReport {
 pub fn execute(
     profile: &str,
     pid: Option<i32>,
+    detach_all: bool,
     config: Option<&str>,
     cwd: Option<&str>,
     profile_optional: bool,
@@ -81,7 +87,14 @@ pub fn execute(
             });
             continue;
         }
-        match super::unuse::execute(&s.name, pid) {
+        // `--detach-all` releases every client's refs (refcount -> 0, grace);
+        // the default releases just this PID's refs (the inverse of `up`).
+        let release = if detach_all {
+            super::unuse::execute_all(&s.name)
+        } else {
+            super::unuse::execute(&s.name, pid)
+        };
+        match release {
             Ok(()) => results.push(ServerResult {
                 name: s.name.clone(),
                 outcome: "released",

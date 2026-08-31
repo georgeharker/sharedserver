@@ -67,10 +67,21 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
             sharedserver::core::lockfile::read_json(file).unwrap_or_else(|_| ClientsLock::new());
 
         if clients.clients.remove(&client_pid).is_none() {
+            // Name who IS holding refs so the caller can retry with `--pid`
+            // instead of guessing (the client map is right here, under the
+            // lock). Sorted for a deterministic message.
+            let mut attached: Vec<String> = clients.clients.keys().map(|p| p.to_string()).collect();
+            attached.sort_by_key(|p| p.parse::<i32>().unwrap_or(i32::MAX));
             bail!(
-                "Client {} was not attached to server '{}'",
+                "Client {} was not attached to server '{}' — attached clients: {} \
+                 (retry with `--pid <pid>` to release a specific client)",
                 client_pid,
-                name
+                name,
+                if attached.is_empty() {
+                    "none".to_string()
+                } else {
+                    attached.join(", ")
+                }
             );
         }
 
@@ -79,4 +90,29 @@ fn decrement_refcount(name: &str, client_pid: i32) -> Result<u32> {
         Ok(clients.refcount)
     })
     .with_context(|| format!("Failed to decrement refcount for '{}'", name))
+}
+
+/// Detach EVERY client at once (`down --detach-all`): clear the whole client
+/// map under the lock so the refcount drops to 0 and the server enters its
+/// grace period. No signals are sent — the watcher's grace countdown still
+/// owns the actual shutdown, which is what makes this the gentle alternative
+/// to `admin stop`. Returns how many clients were detached.
+///
+/// Callers are expected to have checked the server state (the `unuse` wrapper
+/// does); a Stopped server simply has no clients lockfile to read, which the
+/// `unwrap_or_else` default handles.
+pub fn clear_all_clients(name: &str) -> Result<usize> {
+    let clients_path = sharedserver::core::lockfile::clients_lockfile_path(name)?;
+
+    sharedserver::core::lockfile::with_lock(&clients_path, |file| {
+        let mut clients: ClientsLock =
+            sharedserver::core::lockfile::read_json(file).unwrap_or_else(|_| ClientsLock::new());
+
+        let detached = clients.clients.len();
+        clients.clients.clear();
+        clients.refcount = 0;
+        sharedserver::core::lockfile::write_json(file, &clients)?;
+        Ok(detached)
+    })
+    .with_context(|| format!("Failed to detach all clients from '{}'", name))
 }

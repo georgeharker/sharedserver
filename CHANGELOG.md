@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- **`down --detach-all` — release a profile held by other (or dead) clients.**
+  A normal `down` releases only *your* PID's refs, which fails when the refs
+  belong to other PIDs (other live sessions, or processes that died without
+  detaching — e.g. a manual `down` from a shell whose parent PID was never the
+  attaching client). `down --profile <p> --detach-all` clears the whole client
+  map per server instead: the refcount drops to 0 and each server enters its
+  grace period normally, with **no signals sent** — the watcher's grace
+  countdown still owns shutdown. That makes it the gentle tier between a normal
+  `down` and `admin stop` (immediate SIGTERM teardown) / `admin kill` (the
+  floor). Conflicts with `--pid` (it detaches everyone, so a specific PID is
+  meaningless).
+- **Unattached-PID errors now name the attached clients.** When `unuse`/
+  `admin decref` fails because the target PID was never attached, the error
+  lists the PIDs that *are* holding the refs (sorted), e.g. `Client 123 was not
+  attached to server 'x' — attached clients: 456, 789 (retry with --pid <pid> to
+  release a specific client)`. Previously it just said "was not attached",
+  leaving you to guess which PID to pass to `--pid` (or reach for `admin kill`).
+  The client map is read under the same lock as the decrement itself, so the
+  list is consistent with the failed update.
 - **On-demand commands / status surface across hosts.** **Pi** — a `/sharedserver`
   slash command (`status`, `up <profile>`, `down <profile>`, `config show`,
   `config lookup <name>`, with autocomplete); **Neovim** — `:ServerUp [profile]` /
@@ -71,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   submodules; they are now ordinary tracked directories.)
 
 ### Changed
+
 - **crates.io publishing is now gated on the binary build succeeding.** It runs as a
   cargo-dist publish job (`.github/workflows/publish-crates.yml`, invoked via
   `workflow_call`) instead of firing independently on the tag. Previously both raced
@@ -99,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-06-27
 
 ### Added
+
 - `admin stop` now takes `--timeout <DUR>` (default `10s`) bounding how long it
   waits for teardown to converge.
 - New process liveness primitive `process_liveness()` returning `Alive` /
@@ -108,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start stamps used by the PID-reuse guard.
 
 ### Changed
+
 - **`admin incref` / `admin decref` now require `--pid`.** These low-level
   commands previously defaulted the client PID to the (immediately-exiting) CLI
   process, registering a dead client. They are internal plumbing — `use` /
@@ -146,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
+
 - **A corrupt or mid-teardown-deleted lockfile no longer turns every command
   into a hard error.** `get_server_state` now reports `stopped` for an
   unreadable/empty server lock (a normal teardown race or corruption) instead of
@@ -200,139 +224,161 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.10] - 2026-04-13
 
 ### Changed
+
 - Lua test suite rewritten as busted specs, with a Makefile target and a GitHub Actions test workflow
 
 ### Removed
+
 - Removed the plenary.nvim dependency — the Lua plugin and its tests no longer require plenary
 
 ## [0.4.9] - 2026-03-29
 
 ### Added
+
 - New `is_registered(name)` Lua API to check whether a server has been configured
 
 ### Fixed
+
 - Lazy servers are no longer preemptively attached at startup; they now start only on first use
 
 ## [0.4.8] - 2026-03-24
 
 ### Fixed
+
 - Servers are now started in their own process group, and `admin stop`/`admin kill` (and the watcher) terminate the whole process group — ensuring the entire server stack, including child processes, is reliably killed
 
 ## [0.4.7] - 2026-03-22
 
 ### Changed
+
 - Maintenance release (version bump only, no functional changes)
 
 ## [0.4.6] - 2026-03-22
 
 ### Changed
+
 - Internal cleanup: lint fixes and release script improvements (no functional changes)
 
 ## [0.4.5] - 2026-03-22
 
 ### Added
+
 - **JSON output for `list`**: `sharedserver list --json` emits machine-readable server status
 
 ### Changed
+
 - Lua plugin now queries server status via the JSON output for more robust parsing
 
 ## [0.4.4] - 2026-02-12
 
 ### Added
+
 - **Admin doctor command**: Validate server state and automatically clean up issues
-    - Check all servers: `sharedserver admin doctor`
-    - Check specific server: `sharedserver admin doctor <name>`
-    - Validates server/watcher processes are alive
-    - Checks all client PIDs are valid processes
-    - Verifies refcount matches actual client count
-    - Validates state constraints (Active has clients, Grace has none)
-    - Automatically removes stale lockfiles for stopped servers
-    - Color-coded output with ✓/⚠ indicators
+  - Check all servers: `sharedserver admin doctor`
+  - Check specific server: `sharedserver admin doctor <name>`
+  - Validates server/watcher processes are alive
+  - Checks all client PIDs are valid processes
+  - Verifies refcount matches actual client count
+  - Validates state constraints (Active has clients, Grace has none)
+  - Automatically removes stale lockfiles for stopped servers
+  - Color-coded output with ✓/⚠ indicators
 - **Admin kill command**: Force kill unresponsive servers
-    - Force kill: `sharedserver admin kill <name>`
-    - Sends SIGKILL immediately (no grace period)
-    - Also kills watcher process if it exists
-    - Cleans up all lockfiles (server and clients)
-    - More aggressive than `admin stop --force`
-    - Useful when servers won't stop normally
+  - Force kill: `sharedserver admin kill <name>`
+  - Sends SIGKILL immediately (no grace period)
+  - Also kills watcher process if it exists
+  - Cleans up all lockfiles (server and clients)
+  - More aggressive than `admin stop --force`
+  - Useful when servers won't stop normally
 
 ### Changed
+
 - **BREAKING**: Lua API restructured to single-parameter format
-    - **Old**: `setup(servers_table, options_table)`
-    - **New**: `setup({ servers = {...}, commands = true, notify = {...} })`
-    - All server configurations must now be in a `servers` table
-    - Configuration options (commands, notify) are direct fields in opts
-    - No backward compatibility - clean break for cleaner API
-    - See README.md and EXAMPLES.md for migration examples
+  - **Old**: `setup(servers_table, options_table)`
+  - **New**: `setup({ servers = {...}, commands = true, notify = {...} })`
+  - All server configurations must now be in a `servers` table
+  - Configuration options (commands, notify) are direct fields in opts
+  - No backward compatibility - clean break for cleaner API
+  - See README.md and EXAMPLES.md for migration examples
 
 ### Removed
+
 - Single-server mode removed from Lua plugin (use `servers` table instead)
 
 ### Fixed
+
 - Hardened the new commands against crashes and added test coverage
 
 ## [0.4.3] - 2026-02-12
 
 ### Added
+
 - **Environment variable support**: Pass custom environment variables to server processes
-    - New `env` configuration option in Lua (table format: `{KEY = "value"}`)
-    - New `--env KEY=VALUE` CLI argument (repeatable)
-    - Environment variables are inherited and extended, not replaced
-    - Useful for API keys, debug flags, custom paths, and feature toggles
-    - Example: `env = {DEBUG = "1", API_KEY = "secret"}` in server config
+  - New `env` configuration option in Lua (table format: `{KEY = "value"}`)
+  - New `--env KEY=VALUE` CLI argument (repeatable)
+  - Environment variables are inherited and extended, not replaced
+  - Useful for API keys, debug flags, custom paths, and feature toggles
+  - Example: `env = {DEBUG = "1", API_KEY = "secret"}` in server config
 - **Server logging support**: Capture server stdout/stderr to a file
-    - New `log_file` option in Lua server config
-    - New `--log-file` CLI argument
-    - Server output is appended to the log file (otherwise discarded to /dev/null)
+  - New `log_file` option in Lua server config
+  - New `--log-file` CLI argument
+  - Server output is appended to the log file (otherwise discarded to /dev/null)
 - **Health check on server start**: Detect servers that die immediately after starting
-    - Checks the server a few seconds after launch and shows an error notification if it died unexpectedly
-    - Respects the `notify.on_error` configuration setting
-    - Only runs for newly started servers, not attachments
+  - Checks the server a few seconds after launch and shows an error notification if it died unexpectedly
+  - Respects the `notify.on_error` configuration setting
+  - Only runs for newly started servers, not attachments
 - **`:checkhealth sharedserver` support**: Verify your setup from inside Neovim
-    - Verifies the `sharedserver` binary installation and version
-    - Checks lock directory accessibility and permissions
-    - Validates the plugin API is loaded correctly
-    - Shows status of all configured servers
+  - Verifies the `sharedserver` binary installation and version
+  - Checks lock directory accessibility and permissions
+  - Validates the plugin API is loaded correctly
+  - Shows status of all configured servers
 - New debugging guide (`docs/DEBUGGING.md`) covering the health check system and how to capture server output
 - Rust integration test suite and expanded shell test coverage
 
 ### Changed
+
 - Expanded README and examples; added build badge
 
 ## [0.4.1] - 2026-02-10
 
 ### Changed
+
 - Rust code consolidated into a single `sharedserver` crate (previously split into `sharedserver-cli` and `sharedserver-core`), simplifying installation via `cargo install sharedserver`
 - README: clarified installation instructions
 
 ## [0.3.7] - 2026-02-10
 
 ### Changed
+
 - Improved the release/versioning script (internal, no functional changes)
 
 ## [0.3.6] - 2026-02-10
 
 ### Fixed
+
 - Fixed crate README references in `Cargo.toml` so packages render correctly on crates.io
 
 ## [0.3.5] - 2026-02-10
 
 ### Changed
+
 - Publish workflow now takes the crates.io token from the environment (CI only, no functional changes)
 
 ## [0.3.4] - 2026-02-10
 
 ### Changed
+
 - Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
 
 ## [0.3.3] - 2026-02-10
 
 ### Changed
+
 - Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
 
 ## [0.3.2] - 2026-02-10
 
 ### Changed
+
 - Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
 
 ## [0.3.1] - 2026-02-10
@@ -340,30 +386,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 First tagged release, built on the new Rust CLI.
 
 ### Added
+
 - **Rust `sharedserver` CLI**: Complete rewrite of the shell wrapper in Rust
-    - User commands: `use`, `unuse`, `list`, `info`, `check`, `completion`
-    - Admin namespace: `admin start`, `admin stop`, `admin incref`, `admin decref`, `admin debug`
-    - Watcher process manages grace-period shutdown after the last client detaches
+  - User commands: `use`, `unuse`, `list`, `info`, `check`, `completion`
+  - Admin namespace: `admin start`, `admin stop`, `admin incref`, `admin decref`, `admin debug`
+  - Watcher process manages grace-period shutdown after the last client detaches
 - Monitoring and recovery test suite covering server lifecycle edge cases
 - crates.io publish workflows and a release script
 
 ### Changed
+
 - Project renamed from `sharedserver.nvim` to `sharedserver`
 - CLI binary is now `sharedserver`, replacing the `serverctl` shell wrapper
 - Hardened reference counting and start/stop/watcher handling based on the new monitoring tests
 
 ### Fixed
+
 - Fixed notification detection logic that incorrectly identified server starts as attaches, causing `on_start` notifications to not appear
 
 ## [0.2.0] - 2026-02-08
 
 ### Added
+
 - New user-friendly `serverctl unuse` command for detaching from servers
 - Separate admin command namespace (`serverctl admin`) for low-level operations
 - Improved help text showing everyday commands vs admin commands
 - Shell completion support for both user and admin commands
 
 ### Changed
+
 - **BREAKING**: Restructured CLI - `incref`/`decref` moved to `admin incref`/`admin decref`
 - **BREAKING**: `--pid` in user commands (`use`, `unuse`) now defaults to **parent process** instead of current process
 - Lua plugin now calls `admin incref`/`admin decref` explicitly
@@ -371,11 +422,14 @@ First tagged release, built on the new Rust CLI.
 - Updated README with new command structure and usage examples
 
 ### Migration Guide
+
 If you were calling `serverctl incref` or `serverctl decref` directly:
+
 - Change `serverctl incref <name> --pid <pid>` → `serverctl admin incref <name> --pid <pid>`
 - Change `serverctl decref <name> --pid <pid>` → `serverctl admin decref <name> --pid <pid>`
 
 For most users, prefer the new high-level commands:
+
 - Use `serverctl use <name> -- <command>` to start/attach
 - Use `serverctl unuse <name>` to detach
 

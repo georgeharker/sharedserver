@@ -1,4 +1,4 @@
-use crate::output::{format_server_name, print_warning};
+use crate::output::{format_refcount, format_server_name, print_warning};
 use anyhow::{bail, Result};
 use sharedserver::core::{get_server_state, ServerState};
 
@@ -39,6 +39,56 @@ pub fn execute(name: &str, pid: Option<i32>) -> Result<()> {
         }
         ServerState::Defunct => {
             // Server already died and is being torn down; nothing to detach from.
+            bail!(
+                "Server {} is shutting down (defunct, cleanup pending)",
+                format_server_name(name)
+            );
+        }
+    }
+}
+
+/// Detach from a server on behalf of EVERY client (`down --detach-all`): the
+/// whole client map is cleared, so the refcount hits 0 and the server enters
+/// its grace period. No signals are sent — the watcher's grace countdown owns
+/// the actual shutdown, which makes this the gentle tier between a single
+/// `unuse` and `admin stop`'s immediate teardown.
+pub fn execute_all(name: &str) -> Result<()> {
+    let state = get_server_state(name)?;
+
+    match state {
+        ServerState::Stopped => {
+            bail!("Server {} is not running", format_server_name(name));
+        }
+        ServerState::Grace => {
+            // Refcount is already 0 — nothing left to detach. Report success so
+            // `down` counts the server as released (its grace countdown is
+            // already running).
+            print_warning(&format!(
+                "Server {} is already in grace period (no clients attached)",
+                format_server_name(name)
+            ));
+            Ok(())
+        }
+        ServerState::Active => {
+            let detached = super::decref::clear_all_clients(name)?;
+
+            let _ = sharedserver::core::log::log_invocation(
+                name,
+                &sharedserver::core::log::InvocationLog::success(
+                    "detach-all",
+                    &[name.to_string()],
+                    Some(serde_json::json!({ "detached": detached })),
+                ),
+            );
+
+            print_warning(&format!(
+                "Detached all {detached} client(s) from server {} (refcount: {}, entering grace period)",
+                format_server_name(name),
+                format_refcount(0)
+            ));
+            Ok(())
+        }
+        ServerState::Defunct => {
             bail!(
                 "Server {} is shutting down (defunct, cleanup pending)",
                 format_server_name(name)

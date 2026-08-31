@@ -123,7 +123,7 @@ sharedserver unuse webserver  # server stays alive if others need it
 | `use <name> [-- <cmd> [args...]]` | Attach to server (starts if needed) |
 | `unuse <name>` | Detach from server |
 | `up --profile <p> [--pid <pid>]` | Bring up every server in a profile (see [Profiles](#profiles)) |
-| `down --profile <p> [--pid <pid>]` | Release every server in a profile |
+| `down --profile <p> [--pid <pid>] [--detach-all]` | Release every server in a profile (`--detach-all`: release *every* client's refs, not just yours) |
 | `config <register\|unregister\|lookup\|list\|show\|validate\|profile>` | Edit/inspect server defs & profiles (see [Self-define](#self-define)) |
 | `list` | Show all managed servers |
 | `info <name> [--json]` | Server details (formatted or JSON) |
@@ -184,6 +184,15 @@ sharedserver down --profile opencode --pid $$   # releases them
   everything. Adding `profiles` is opt-in and backward compatible.
 - **Deterministic.** `down` re-resolves the same selection, so it releases
   precisely what `up` started — no state is tracked between them.
+- **`--detach-all`.** `down` releases *your* PID's refs. When the refs belong to
+  other PIDs — other live sessions, or processes that died without detaching —
+  `down --profile <p> --detach-all` clears the whole client map instead: the
+  refcount drops to 0 and each server enters its grace period normally. No
+  signals are sent (the watcher's grace countdown still owns shutdown), which
+  makes it the gentle tier between a normal `down` and
+  [`admin stop`](#stopping-a-server-stop-vs-stop---force-vs-kill). If a decref
+  fails because your PID was never attached, the error now lists the PIDs that
+  *are* holding refs, so `down --pid <pid>` is usable without guessing.
 - **`up` honours `lazy`** (attach-only, never starts) and **`skipIfEnv`** (skip
   when another host already launched the server), and tolerates a single server
   failing without aborting the rest.
