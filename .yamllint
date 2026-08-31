@@ -1,0 +1,14 @@
+# yamllint config for this repo's workflow files.
+# pi-lens runs yamllint on YAML; without this file it uses the default rules
+# (line-length max 80), which fires on this repo's comment style — the
+# workflow header comments deliberately run long (up to ~111 cols) for
+# readability. 120 matches the code style used across the repo (see
+# .prettierrc.mjs) and covers every existing line.
+extends: default
+ignore: |
+  # cargo-dist-generated: its long `if:` expressions and installer URLs are
+  # template output, not hand-styled — regenerating rewrites them anyway.
+  .github/workflows/release.yml
+rules:
+  line-length:
+    max: 120
