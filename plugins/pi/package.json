@@ -1,6 +1,6 @@
 {
     "name": "@geohar/pi-sharedserver",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "description": "Pi extension: manage shared backend processes via the sharedserver CLI.",
     "type": "module",
     "main": "dist/index.js",
