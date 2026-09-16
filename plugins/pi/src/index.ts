@@ -145,7 +145,6 @@ function runProfile(
 // (reload/resume/fork re-enter session_start but keep the processes attached).
 type Session = { binary: string; profile: string; pid: number; cwd: string; env: NodeJS.ProcessEnv }
 let session: Session | undefined
-let cleanupInstalled = false
 
 function tearDown(log: LogFn) {
     if (!session) return
@@ -154,15 +153,28 @@ function tearDown(log: LogFn) {
     runProfile("down", s.binary, s.profile, s.pid, s.cwd, s.env, log)
 }
 
+/** Process-global guard — jiti loads extensions with moduleCache:false, so every
+ *  session bind (parent + each subagent child) re-instantiates this module with
+ *  fresh state; a module-level flag resets and stacks another handler per bind.
+ *  Symbol.for survives the isolation, installing the handlers once per process. */
+const CLEANUP_GUARD = Symbol.for("pi-sharedserver:cleanup-installed")
+
 function installCleanup(log: LogFn) {
-    if (cleanupInstalled) return
-    cleanupInstalled = true
+    const g = globalThis as Record<symbol, boolean | undefined>
+    if (g[CLEANUP_GUARD]) return
+    g[CLEANUP_GUARD] = true
     process.on("exit", () => tearDown(log))
     for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
-        process.on(sig, () => {
+        const handler = () => {
             tearDown(log)
-            process.kill(process.pid, sig) // re-raise so original signal semantics apply
-        })
+            // Remove our listener before re-raising: re-killing with the handler
+            // still installed re-delivers the signal to it forever (loop verified —
+            // ctrl+c wedged pi instead of exiting). Gone, the re-raise falls
+            // through to the default disposition and terminates.
+            process.removeListener(sig, handler)
+            process.kill(process.pid, sig)
+        }
+        process.on(sig, handler)
     }
 }
 
