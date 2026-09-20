@@ -6,13 +6,17 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "pi": {
-        "extensions": ["./src/index.ts"]
+        "extensions": [
+            "./src/index.ts"
+        ],
+        "image": "https://cdn.jsdelivr.net/npm/@geohar/pi-sharedserver/assets/preview.png"
     },
     "files": [
         "src",
         "dist",
         "README.md",
-        "LICENSE"
+        "LICENSE",
+        "assets"
     ],
     "scripts": {
         "build": "tsc",
