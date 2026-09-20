@@ -1,6 +1,6 @@
 {
     "name": "@geohar/opencode-sharedserver",
-    "version": "0.9.1",
+    "version": "0.9.2",
     "description": "OpenCode plugin: manage shared backend processes via the sharedserver CLI.",
     "type": "module",
     "main": "dist/index.js",
