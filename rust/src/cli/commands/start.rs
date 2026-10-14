@@ -396,7 +396,20 @@ fn exec_server(command: &[String], env_vars: &[String]) -> Result<()> {
     let cmd_string = command.join(" ");
 
     use std::os::unix::process::CommandExt;
-    let mut cmd = std::process::Command::new("/bin/bash");
+    let shell_path = match std::env::var("SHELL") {
+        Ok(shell) => {
+            let shell_path = std::fs::canonicalize(&shell)?;
+            shell_path.into_os_string()
+        }
+        Err(_) => {
+            // Use 'bash' as fallback, resolve binary path
+            let bash_str = "bash";
+            let bash_path = which::which(bash_str)
+                .map_err(|err| anyhow!("Failed to resolve '{bash_str}' binary : {}", err))?;
+            bash_path.into_os_string()
+        }
+    };
+    let mut cmd = std::process::Command::new(shell_path);
     cmd.arg("-c");
     cmd.arg(&cmd_string);
 

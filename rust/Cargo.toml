@@ -26,6 +26,7 @@ nix = { version = "0.27", features = ["fs", "process", "signal"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"
+which = "8.0"
 
 # CLI-specific dependencies
 clap = { version = "4.4", features = ["derive", "color", "help", "usage", "error-context"] }
