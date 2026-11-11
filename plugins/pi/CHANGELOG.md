@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Security
+
+## [0.9.5] - 2026-11-11
+
+### Fixed
+
 - **Config edits no longer delete unrelated empty profiles.** `config unregister`
   and `config profile remove` used to drop *every* empty profile in
   `servers.json`, so one scope unregistering its own server could silently remove
@@ -27,8 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would wipe state another holder is using. No behaviour change; this satisfies
   newer clippy's `suspicious_open_options` lint, whose suggested `.truncate(true)`
   would have been a bug.
-
-### Security
 
 ## [0.9.4] - 2026-11-11
 
