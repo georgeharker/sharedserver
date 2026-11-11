@@ -180,10 +180,21 @@ if [ "$(highest "$base" "$new")" = "$base" ] && [ "$new" != "$base" ]; then
   die "new version $new is lower than baseline $base; refusing to go backwards"
 fi
 
+# A release needs release notes: Pi reads CHANGELOG.md headings (`## [X.Y.Z]`) from
+# the package root after an update and shows entries newer than the last-seen
+# version, matched against package.json `version`. A bump with no matching heading
+# would ship a release Pi can't describe — so the notes must exist BEFORE the bump.
+grep -qE "^## \[$(printf '%s' "$new" | sed 's/[.]/\\./g')\]" "$ROOT/CHANGELOG.md" \
+  || die "CHANGELOG.md has no '## [$new]' heading; add the release notes first"
+
 if [ "$dry_run" = 1 ]; then echo "(dry run) no files changed"; exit 0; fi
 
 if [ "$do_commit" = 1 ]; then
   excl=(); for f in "${MANIFESTS[@]}"; do excl+=( ":!${f#"$ROOT"/}" ); done
+  # The changelog is expected to be dirty at bump time — its `## [$new]` heading is
+  # the release notes this very release ships (and the guard above already required
+  # it), and the Pi package's copy is refreshed below. Everything else must be clean.
+  excl+=( ":!CHANGELOG.md" ":!plugins/pi/CHANGELOG.md" )
   if [ -n "$(git -C "$ROOT" status --porcelain -- "${excl[@]}")" ]; then
     die "working tree has unrelated changes; commit or stash them first"
   fi
@@ -227,9 +238,22 @@ for i in "${!MANIFESTS[@]}"; do
   LOCKS+=("$lock"); echo "  synced $(basename "$lock") ($cname -> $new)"
 done
 
+# The Pi package ships its own copy of the changelog (package.json `pi.changelogPath`
+# + `files`). Keep it a REAL committed file, never a symlink — npm pack and
+# marketplace copies drop or dangle symlinks — and refresh it on every bump so a
+# release can never ship a stale copy.
+PI_CHANGELOG="$ROOT/plugins/pi/CHANGELOG.md"
+if [ -d "$ROOT/plugins/pi" ]; then
+  rm -f "$PI_CHANGELOG" && cp "$ROOT/CHANGELOG.md" "$PI_CHANGELOG"
+  echo "  synced plugins/pi/CHANGELOG.md (from repo root)"
+fi
+
 [ "$do_commit" = 0 ] && { echo "files updated; skipped commit (--no-commit)"; exit 0; }
 
-git -C "$ROOT" add "${MANIFESTS[@]}" ${LOCKS+"${LOCKS[@]}"} ${VENDORED+"${VENDORED[@]}"}
+# Stage the changelog pair alongside the manifests: the root one carries this
+# release's notes, the Pi copy ships them.
+git -C "$ROOT" add "${MANIFESTS[@]}" ${LOCKS+"${LOCKS[@]}"} ${VENDORED+"${VENDORED[@]}"} \
+  "$ROOT/CHANGELOG.md" ${PI_CHANGELOG:+"$PI_CHANGELOG"}
 git -C "$ROOT" commit -m "release: $TAG — lockstep version across all manifests"
 echo "committed."
 

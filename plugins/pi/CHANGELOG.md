@@ -1,0 +1,638 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.9.3] - 2026-11-11
+
+### Added
+
+- **The Pi extension now ships and points at its changelog.**
+  `plugins/pi/package.json` declares `pi.changelogPath` and includes `CHANGELOG.md`
+  in `files`, and `prepack` copies the repo-root `CHANGELOG.md` into the package —
+  a real committed copy, never a symlink — so Pi shows the release notes under
+  "Extension Updates" after an update.
+- `scripts/bump-version.sh` now refuses a bump whose version has no `## [X.Y.Z]`
+  heading in `CHANGELOG.md` (add the release notes first), and syncs the
+  `plugins/pi/CHANGELOG.md` copy into the release commit.
+
+### Changed
+
+- Backfilled `CHANGELOG.md` release headings for 0.5.1 through 0.9.2 from the
+  git tags — those notes had accumulated under `[Unreleased]` without ever being
+  turned into dated release sections.
+
+## [0.9.2] - 2026-09-20
+
+### Added
+
+- pi.dev gallery preview card for the Pi extension (`pi.image`,
+  `assets/preview.png`, and a generator script).
+
+### Fixed
+
+- Regenerated `release.yml`'s tag-pattern quoting to match the current
+  cargo-dist version.
+
+## [0.9.1] - 2026-09-15
+
+### Fixed
+
+- **Pi extension: the SIGINT cleanup belt no longer wedges pi.** The handler
+  now removes itself before re-raising, guarded to run once per process.
+
+### Changed
+
+- CI: actions/checkout and actions/setup-node v4 → v6 (Node 24); prettier is
+  pinned over biome in the pi-lens formatter cascade, and the affected files
+  were normalized to prettier-canonical formatting.
+
+## [0.9.0] - 2026-08-31
+
+### Added
+
+- **`down --detach-all` — release a profile held by other (or dead) clients.**
+  A normal `down` releases only *your* PID's refs, which fails when the refs
+  belong to other PIDs (other live sessions, or processes that died without
+  detaching — e.g. a manual `down` from a shell whose parent PID was never the
+  attaching client). `down --profile <p> --detach-all` clears the whole client
+  map per server instead: the refcount drops to 0 and each server enters its
+  grace period normally, with **no signals sent** — the watcher's grace
+  countdown still owns shutdown. That makes it the gentle tier between a normal
+  `down` and `admin stop` (immediate SIGTERM teardown) / `admin kill` (the
+  floor). Conflicts with `--pid` (it detaches everyone, so a specific PID is
+  meaningless).
+- **Unattached-PID errors now name the attached clients.** When `unuse`/
+  `admin decref` fails because the target PID was never attached, the error
+  lists the PIDs that *are* holding the refs (sorted), e.g. `Client 123 was not
+  attached to server 'x' — attached clients: 456, 789 (retry with --pid <pid> to
+  release a specific client)`. Previously it just said "was not attached",
+  leaving you to guess which PID to pass to `--pid` (or reach for `admin kill`).
+  The client map is read under the same lock as the decrement itself, so the
+  list is consistent with the failed update.
+- Project logo, wired into the README and the Quarto site.
+- Pi integration guide (`docs/PI.md`), linked from the README and the site.
+
+### Changed
+
+- `.pi/` local agent settings are now ignored.
+
+## [0.8.2] - 2026-08-19
+
+Re-release of 0.8.1 — lockstep version bump only, no code changes.
+
+## [0.8.1] - 2026-08-18
+
+### Changed
+
+- The Pi extension carries the `pi-package` keyword so it lists in the Pi
+  directory.
+
+## [0.8.0] - 2026-08-17
+
+### Added
+
+- **On-demand commands / status surface across hosts.** **Pi** — a `/sharedserver`
+  slash command (`status`, `up <profile>`, `down <profile>`, `config show`,
+  `config lookup <name>`, with autocomplete); **Neovim** — `:ServerUp [profile]` /
+  `:ServerDown [profile]` alongside the existing `:ServerStatus`/`:ServerList`;
+  **Claude Code** — `status`, `up <profile>`, `down <profile>`, `config-show`,
+  `config-lookup` slash commands (`up`/`down` pass `--pid "$PPID"`, the session
+  process — the same reference the SessionStart/SessionEnd hooks use — so a profile
+  brought up this way holds for the session); **OpenCode** — a read-only
+  `sharedserver_status` tool the agent can call (its plugin API can't register user
+  slash commands, and mutating server state isn't the model's to trigger). Config
+  *mutations* (`register`/`unregister`) are kept off the slash surface everywhere.
+- **`config` self-define verbs.** Programs (or you) can register server defs into
+  `servers.json` as scoped, atomic JSON edits instead of hand-editing the file:
+  `config register --scope <id> <name> [--profile P]... [--if-absent] -- <cmd>`
+  defines a server and tags it into profiles; `unregister` removes a scope's defs
+  and cascades them out of every profile; `profile add`/`remove` tag membership
+  directly; `lookup`/`list`/`show` (with `--json`) inspect; `validate` flags
+  dangling profile members. Each entry is stamped with its owning `_scope`: a
+  cross-scope name clash is a hard error at register time, the same scope
+  overwrites idempotently, and profile membership unions. Edits are lossless
+  (unknown keys preserved) and taken under a per-file lock. The intended
+  lifecycle is `lookup` → `register --if-absent` → `up`, which lets plugins in
+  other repos self-define cooperatively without clashing.
+
+## [0.7.0] - 2026-08-17
+
+### Added
+
+- **Profiles and the `up`/`down` verbs.** `servers.json` gains an optional
+  top-level `profiles` map (`{ "<profile>": ["<server>", ...] }`) that groups
+  servers, and the binary now owns config parsing: it reads the file, expands
+  `${VAR}`, and resolves a profile to a server set. `sharedserver up --profile
+  <p> --pid <pid>` brings that set up (fanning out to `use`) and `down` releases
+  it (fanning out to `unuse`), selecting deterministically so `down` releases
+  exactly what `up` started. A *host* identity (`claude`/`opencode`/`pi`/
+  `neovim`) is simply a reserved profile name — there is no separate host axis.
+  A server named by no profile is **universal** and comes up for every profile,
+  so a config with no `profiles` behaves exactly as before (fully backward
+  compatible). `up` honours `lazy` and `skipIfEnv` and tolerates a single server
+  failing without aborting the rest. `--profile-optional` suppresses the
+  "unknown profile" warning for a program asking for its own, possibly-undefined
+  host profile (the plain CLI still warns). `up`/`down` also gained `--json`
+  machine-readable output, and each host plugin migrated to
+  `up/down --profile <host>`.
+
+## [0.6.9] - 2026-08-17
+
+### Added
+
+- **Pi plugin** (`@geohar/pi-sharedserver`) under `plugins/pi`, published to npm
+  in lockstep with the unified release tag.
+
+### Changed
+
+- FlakeHub publish skips prerelease tags.
+
+## [0.6.8] - 2026-07-20
+
+### Fixed
+
+- The marketplace listing now advertises the Claude plugin's version in its
+  `plugins[]` entry, so `/plugin marketplace` sees the installable version.
+
+## [0.6.7] - 2026-07-20
+
+### Changed
+
+- The OpenCode resolver is extracted into a vendorable module.
+
+## [0.6.6] - 2026-07-20
+
+### Fixed
+
+- The shim's "fetching vX" line interpolated the *host* plugin's version even
+  when `SS_INSTALLER_URL` overrides the pin; it now describes what it actually
+  fetches.
+
+## [0.6.5] - 2026-07-20
+
+### Added
+
+- **The plugin shim is vendorable.** Everything that differs per consuming repo
+  now lives in an optional adjacent `sharedserver.conf` (`SS_LABEL`,
+  `SS_MIN_VERSION`, `SS_INSTALLER_URL`); empty defaults reproduce this plugin's
+  own behaviour exactly, so consumers can vendor byte-identical copies without
+  drift. Missing `jq`/`envsubst` are surfaced clearly instead of failing obscurely.
+
+## [0.6.4] - 2026-07-20
+
+### Added
+
+- `scripts/bump-version.sh` accepts semver prerelease versions
+  (`0.6.4-alpha.1`). Prerelease tags build and host binaries but **skip the
+  crates.io publish**, giving a dev-release channel where nothing irreversible
+  happens. Prereleases are ordered by semver precedence (a prerelease ranks below
+  the release it leads to).
+
+### Changed
+
+- crates.io publishing now uses OIDC trusted publishing (no stored token).
+
+## [0.6.3] - 2026-07-19
+
+### Added
+
+- The OpenCode plugin reads the shared `servers.json`, at parity with the
+  Claude plugin.
+
+### Changed
+
+- Rendered docs strip the crates.io badge via a pandoc filter instead of
+  markdown markers.
+
+## [0.6.2] - 2026-07-19
+
+### Added
+
+- Per-project sharedserver config with walk-up discovery.
+
+## [0.6.1] - 2026-07-18
+
+### Fixed
+
+- Plugin READMEs link to GitHub URLs (Quarto link-check); `bump-version.sh`
+  synced across repos.
+
+## [0.6.0] - 2026-07-18
+
+### Added
+
+- **Prebuilt binaries for every release**, built by
+  [cargo-dist](https://opensource.axo.dev/cargo-dist/) for macOS and Linux on both
+  x86_64 and arm64, published to the GitHub release alongside a hosted
+  `sharedserver-installer.sh`. Installing no longer needs a Rust toolchain.
+  (No Windows target: the crate depends unconditionally on `nix`, which is
+  `#![cfg(unix)]`, so the POSIX process/signal/locking code does not compile there.)
+- **The Claude Code and OpenCode plugins fetch `sharedserver` themselves** when none
+  is present, using that installer — so installing either plugin is now sufficient
+  and `cargo install sharedserver` is optional. Both clients share one install lock,
+  so sessions starting simultaneously coordinate rather than race, and a failed
+  download falls back to whatever binary was already present rather than leaving you
+  with nothing.
+- Embedded the sibling editor plugins as plain in-tree directories under
+  `plugins/`:
+  [`opencode-sharedserver`](https://github.com/geoharker/sharedserver/tree/main/plugins/opencode)
+  at `plugins/opencode` and
+  [`claude-sharedserver`](https://github.com/geoharker/sharedserver/tree/main/plugins/claude)
+  at `plugins/claude`, with new
+  [OpenCode](docs/OPENCODE.md) and [Claude Code](docs/CLAUDE_CODE.md)
+  integration guides and a README section. (Both were briefly vendored as git
+  submodules; they are now ordinary tracked directories.)
+
+### Changed
+
+- **crates.io publishing is now gated on the binary build succeeding.** It runs as a
+  cargo-dist publish job (`.github/workflows/publish-crates.yml`, invoked via
+  `workflow_call`) instead of firing independently on the tag. Previously both raced
+  off the same tag, so a failed build could leave a published crate whose installer
+  URL 404s — and a publish is irreversible where a build failure is just a re-run.
+  The standalone `workflow_dispatch` manual-publish trigger is gone with it, and
+  `--no-verify` was dropped so the publish verifies what it ships.
+- The plugins prefer an installed `sharedserver` at or above the version they ship
+  against, and otherwise fetch the matching release, keeping plugin and binary in
+  lockstep. An explicit `SHAREDSERVER_BIN` is never overridden — it warns if the
+  version is older and honours it anyway.
+- Plugin `SessionStart` hook timeouts raised 30s → 300s, so a first-run download
+  cannot be killed part-way through an install.
+- Replaced the remaining ASCII diagrams with rendered SVG/PNG (editable SVG
+  sources kept in `docs/`): the state machine and lifecycle timeline in the
+  README, and the `:ServerStatus` window mockup in `docs/NEOVIM.md`.
+
+## [0.5.2] - 2026-06-30
+
+Re-release of 0.5.1 — version bump only, no code changes.
+
+## [0.5.1] - 2026-06-30
+
+### Added
+
+- treefmt (stylua/nixfmt/statix) in the flake, plus `.stylua.toml`.
+
+### Changed
+
+- Lua formatted with stylua (4-space/120) and Rust with `cargo fmt`; the README's
+  ASCII architecture diagram replaced with a rendered SVG/PNG.
+
+### Fixed
+
+- Nix: daemon integration tests are skipped in the Linux sandbox build;
+  `flake.lock` synced with `flake.nix` inputs.
+- CI: nix flake check + build, stylua, rust fmt/clippy, FlakeHub publish,
+  flake-lock.
+
+## [0.5.0] - 2026-06-27
+
+### Added
+
+- `admin stop` now takes `--timeout <DUR>` (default `10s`) bounding how long it
+  waits for teardown to converge.
+- New process liveness primitive `process_liveness()` returning `Alive` /
+  `Zombie` / `Gone`, and a corresponding **`defunct`** server state (server
+  process died but lockfiles not yet removed). `check` now exits `3` for defunct.
+- `info --json` now includes the `start_time` and `watcher_start_time` process
+  start stamps used by the PID-reuse guard.
+
+### Changed
+
+- **`admin incref` / `admin decref` now require `--pid`.** These low-level
+  commands previously defaulted the client PID to the (immediately-exiting) CLI
+  process, registering a dead client. They are internal plumbing — `use` /
+  `unuse` and the Neovim plugin already always pass `--pid` — so this only
+  affects anyone invoking the raw admin commands without it.
+- **`admin start` / `use` no longer leave an orphaned watcher/server on a
+  start-confirmation timeout.** The wait is now gated on watcher *liveness*: it
+  fails fast when the watcher dies without publishing, tolerates a slow-but-alive
+  watcher up to a generous cap (so slow lockfile I/O or load doesn't kill a
+  healthy start), and on genuine failure tears the whole tree down before
+  returning — so a retry can't accidentally start a second instance.
+- **Teardown model reworked so the watcher is the single owner of the server
+  lifecycle.** It now reaps the server (`waitpid`) so no zombie lingers, polls
+  every 500 ms (was 5 s), and deletes lockfiles pid-guarded so a stale watcher
+  can't clobber a restarted instance reusing the same name.
+- **`admin stop` / `stop --force` now signal and then wait for full teardown**
+  (server reaped, lockfiles removed, watcher exited) before returning, instead
+  of deleting lockfiles themselves. `stop` errors without escalating; `--force`
+  escalates to SIGKILL and, on failure, reports exactly what survived.
+- **`admin kill` is now the watcher-independent "floor"**: it SIGKILLs the
+  watcher first, then the server's process group, then cleans up itself. Works
+  even when the watcher is wedged.
+- `admin doctor` now defers to a live watcher instead of racing it, and only
+  removes a lockfile when the server is dead **and** no watcher is alive.
+- **`clients.json` is now kept for the whole life of the server** instead of
+  being deleted when the refcount reaches zero. Grace is now signalled by
+  `refcount == 0` (the file stays with an empty client map), not by the file's
+  absence. This keeps the lockfile inode stable so its `flock` is a real mutex.
+  `refcount` is always derived from the number of distinct client PIDs.
+- Documentation is now published to a docs site via a reusable GitHub Actions workflow
+- CI tests now use a proper vusted setup
+- GitHub Actions workflows can be triggered manually
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- **A corrupt or mid-teardown-deleted lockfile no longer turns every command
+  into a hard error.** `get_server_state` now reports `stopped` for an
+  unreadable/empty server lock (a normal teardown race or corruption) instead of
+  propagating an error, and `admin doctor` cleans such locks instead of aborting
+  the whole run on the first bad one.
+- **Refcount no longer inflates when the same client PID attaches twice.** A
+  repeat `incref`/`use` from one PID used to bump the count while the client map
+  (keyed by PID) stayed at one entry, so a single `unuse` could then drop the
+  server while it was still in use. The refcount is now derived from the client
+  set, making repeat attaches idempotent.
+- **A recycled PID can no longer be mistaken for the server or signalled by
+  mistake.** The server's process start stamp is recorded and verified, so if the
+  OS reuses the old server's PID for an unrelated process, `stop`/`kill`/state
+  checks treat the server as gone instead of acting on the stranger. The same
+  guard now also covers the watcher PID.
+- **`parse_duration` rejects overflowing values** (e.g. an absurd
+  `--grace-period`/`--timeout`) instead of panicking (debug) or silently
+  wrapping to a tiny duration (release).
+- **`admin doctor` now also discovers orphaned `clients.json` files** (with no
+  matching `server.json`) and cleans them, instead of only scanning for servers.
+- **The invocation log is written atomically** (whole line, under a lock), so
+  concurrent writers can't interleave partial lines into the audit log.
+- **Fixed a lock-correctness bug from deleting and recreating `clients.json`.**
+  Because `flock` binds to the inode, deleting the file at refcount 0 and
+  recreating it on the next attach let two processes lock different inodes for
+  the same path, corrupting the refcount and occasionally dropping a just-attached
+  client into grace. The file is no longer deleted mid-life (see Changed).
+- **`stop --force` no longer falsely reports "Failed to kill server process"**
+  when the kill in fact succeeded: a zombie (post-kill, awaiting reap) is no
+  longer treated as a live process. This also unwedges the watcher, which
+  previously could loop forever treating the zombie as alive.
+- A fast `stop`/`start` cycle with the same name no longer risks the old watcher
+  deleting the new instance's lockfiles (the stale-watcher restart race).
+- **The daemon no longer aborts on startup under a debug build.** The fd-redirect
+  setup closed a borrowed descriptor that the owning `File` then closed again on
+  drop; this double-close is a no-op in release but trips std's debug-mode I/O
+  safety guard, killing the watcher before it published its lock. The descriptor
+  is now owned via `into_raw_fd()` so it is closed exactly once.
+- **macOS process start stamps are now microsecond-resolution** (folding in
+  `pbi_start_tvusec` alongside `pbi_start_tvsec`), so two processes that reuse a
+  PID within the same second still get distinct stamps for the reuse guard.
+- Integration tests are now isolated to a dedicated `SHAREDSERVER_LOCKDIR` so
+  they no longer touch the user's real lockdir or assert against the wrong path.
+- Integration tests select the daemon binary by build profile, so both
+  `cargo test` and `cargo test --release` exercise the binary they just built
+  rather than a stale one from the other profile.
+- Fixed the CI test workflow
+- Corrected changelog repository links to point at the actual GitHub repository
+
+### Security
+
+## [0.4.10] - 2026-04-13
+
+### Changed
+
+- Lua test suite rewritten as busted specs, with a Makefile target and a GitHub Actions test workflow
+
+### Removed
+
+- Removed the plenary.nvim dependency — the Lua plugin and its tests no longer require plenary
+
+## [0.4.9] - 2026-03-29
+
+### Added
+
+- New `is_registered(name)` Lua API to check whether a server has been configured
+
+### Fixed
+
+- Lazy servers are no longer preemptively attached at startup; they now start only on first use
+
+## [0.4.8] - 2026-03-24
+
+### Fixed
+
+- Servers are now started in their own process group, and `admin stop`/`admin kill` (and the watcher) terminate the whole process group — ensuring the entire server stack, including child processes, is reliably killed
+
+## [0.4.7] - 2026-03-22
+
+### Changed
+
+- Maintenance release (version bump only, no functional changes)
+
+## [0.4.6] - 2026-03-22
+
+### Changed
+
+- Internal cleanup: lint fixes and release script improvements (no functional changes)
+
+## [0.4.5] - 2026-03-22
+
+### Added
+
+- **JSON output for `list`**: `sharedserver list --json` emits machine-readable server status
+
+### Changed
+
+- Lua plugin now queries server status via the JSON output for more robust parsing
+
+## [0.4.4] - 2026-02-12
+
+### Added
+
+- **Admin doctor command**: Validate server state and automatically clean up issues
+  - Check all servers: `sharedserver admin doctor`
+  - Check specific server: `sharedserver admin doctor <name>`
+  - Validates server/watcher processes are alive
+  - Checks all client PIDs are valid processes
+  - Verifies refcount matches actual client count
+  - Validates state constraints (Active has clients, Grace has none)
+  - Automatically removes stale lockfiles for stopped servers
+  - Color-coded output with ✓/⚠ indicators
+- **Admin kill command**: Force kill unresponsive servers
+  - Force kill: `sharedserver admin kill <name>`
+  - Sends SIGKILL immediately (no grace period)
+  - Also kills watcher process if it exists
+  - Cleans up all lockfiles (server and clients)
+  - More aggressive than `admin stop --force`
+  - Useful when servers won't stop normally
+
+### Changed
+
+- **BREAKING**: Lua API restructured to single-parameter format
+  - **Old**: `setup(servers_table, options_table)`
+  - **New**: `setup({ servers = {...}, commands = true, notify = {...} })`
+  - All server configurations must now be in a `servers` table
+  - Configuration options (commands, notify) are direct fields in opts
+  - No backward compatibility - clean break for cleaner API
+  - See README.md and EXAMPLES.md for migration examples
+
+### Removed
+
+- Single-server mode removed from Lua plugin (use `servers` table instead)
+
+### Fixed
+
+- Hardened the new commands against crashes and added test coverage
+
+## [0.4.3] - 2026-02-12
+
+### Added
+
+- **Environment variable support**: Pass custom environment variables to server processes
+  - New `env` configuration option in Lua (table format: `{KEY = "value"}`)
+  - New `--env KEY=VALUE` CLI argument (repeatable)
+  - Environment variables are inherited and extended, not replaced
+  - Useful for API keys, debug flags, custom paths, and feature toggles
+  - Example: `env = {DEBUG = "1", API_KEY = "secret"}` in server config
+- **Server logging support**: Capture server stdout/stderr to a file
+  - New `log_file` option in Lua server config
+  - New `--log-file` CLI argument
+  - Server output is appended to the log file (otherwise discarded to /dev/null)
+- **Health check on server start**: Detect servers that die immediately after starting
+  - Checks the server a few seconds after launch and shows an error notification if it died unexpectedly
+  - Respects the `notify.on_error` configuration setting
+  - Only runs for newly started servers, not attachments
+- **`:checkhealth sharedserver` support**: Verify your setup from inside Neovim
+  - Verifies the `sharedserver` binary installation and version
+  - Checks lock directory accessibility and permissions
+  - Validates the plugin API is loaded correctly
+  - Shows status of all configured servers
+- New debugging guide (`docs/DEBUGGING.md`) covering the health check system and how to capture server output
+- Rust integration test suite and expanded shell test coverage
+
+### Changed
+
+- Expanded README and examples; added build badge
+
+## [0.4.1] - 2026-02-10
+
+### Changed
+
+- Rust code consolidated into a single `sharedserver` crate (previously split into `sharedserver-cli` and `sharedserver-core`), simplifying installation via `cargo install sharedserver`
+- README: clarified installation instructions
+
+## [0.3.7] - 2026-02-10
+
+### Changed
+
+- Improved the release/versioning script (internal, no functional changes)
+
+## [0.3.6] - 2026-02-10
+
+### Fixed
+
+- Fixed crate README references in `Cargo.toml` so packages render correctly on crates.io
+
+## [0.3.5] - 2026-02-10
+
+### Changed
+
+- Publish workflow now takes the crates.io token from the environment (CI only, no functional changes)
+
+## [0.3.4] - 2026-02-10
+
+### Changed
+
+- Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
+
+## [0.3.3] - 2026-02-10
+
+### Changed
+
+- Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
+
+## [0.3.2] - 2026-02-10
+
+### Changed
+
+- Maintenance release while iterating on crates.io publishing (version bump only, no functional changes)
+
+## [0.3.1] - 2026-02-10
+
+First tagged release, built on the new Rust CLI.
+
+### Added
+
+- **Rust `sharedserver` CLI**: Complete rewrite of the shell wrapper in Rust
+  - User commands: `use`, `unuse`, `list`, `info`, `check`, `completion`
+  - Admin namespace: `admin start`, `admin stop`, `admin incref`, `admin decref`, `admin debug`
+  - Watcher process manages grace-period shutdown after the last client detaches
+- Monitoring and recovery test suite covering server lifecycle edge cases
+- crates.io publish workflows and a release script
+
+### Changed
+
+- Project renamed from `sharedserver.nvim` to `sharedserver`
+- CLI binary is now `sharedserver`, replacing the `serverctl` shell wrapper
+- Hardened reference counting and start/stop/watcher handling based on the new monitoring tests
+
+### Fixed
+
+- Fixed notification detection logic that incorrectly identified server starts as attaches, causing `on_start` notifications to not appear
+
+## [0.2.0] - 2026-02-08
+
+### Added
+
+- New user-friendly `serverctl unuse` command for detaching from servers
+- Separate admin command namespace (`serverctl admin`) for low-level operations
+- Improved help text showing everyday commands vs admin commands
+- Shell completion support for both user and admin commands
+
+### Changed
+
+- **BREAKING**: Restructured CLI - `incref`/`decref` moved to `admin incref`/`admin decref`
+- **BREAKING**: `--pid` in user commands (`use`, `unuse`) now defaults to **parent process** instead of current process
+- Lua plugin now calls `admin incref`/`admin decref` explicitly
+- `serverctl use` command no longer requires `--pid` parameter (defaults to parent/caller)
+- Updated README with new command structure and usage examples
+
+### Migration Guide
+
+If you were calling `serverctl incref` or `serverctl decref` directly:
+
+- Change `serverctl incref <name> --pid <pid>` → `serverctl admin incref <name> --pid <pid>`
+- Change `serverctl decref <name> --pid <pid>` → `serverctl admin decref <name> --pid <pid>`
+
+For most users, prefer the new high-level commands:
+
+- Use `serverctl use <name> -- <command>` to start/attach
+- Use `serverctl unuse <name>` to detach
+
+[Unreleased]: https://github.com/georgeharker/sharedserver/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/georgeharker/sharedserver/compare/v0.4.10...v0.5.0
+[0.4.10]: https://github.com/georgeharker/sharedserver/compare/v0.4.9...v0.4.10
+[0.4.9]: https://github.com/georgeharker/sharedserver/compare/v0.4.8...v0.4.9
+[0.4.8]: https://github.com/georgeharker/sharedserver/compare/v0.4.7...v0.4.8
+[0.4.7]: https://github.com/georgeharker/sharedserver/compare/v0.4.6...v0.4.7
+[0.4.6]: https://github.com/georgeharker/sharedserver/compare/v0.4.5...v0.4.6
+[0.4.5]: https://github.com/georgeharker/sharedserver/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/georgeharker/sharedserver/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/georgeharker/sharedserver/compare/v0.4.1...v0.4.3
+[0.4.1]: https://github.com/georgeharker/sharedserver/compare/v0.3.7...v0.4.1
+[0.3.7]: https://github.com/georgeharker/sharedserver/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/georgeharker/sharedserver/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/georgeharker/sharedserver/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/georgeharker/sharedserver/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/georgeharker/sharedserver/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/georgeharker/sharedserver/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/georgeharker/sharedserver/releases/tag/v0.3.1
+[0.2.0]: https://github.com/georgeharker/sharedserver/commit/f91769b1c79899895bf70df8491a831d532cfb30

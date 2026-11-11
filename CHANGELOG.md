@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.9.3] - 2026-11-11
+
+### Added
+
+- **The Pi extension now ships and points at its changelog.**
+  `plugins/pi/package.json` declares `pi.changelogPath` and includes `CHANGELOG.md`
+  in `files`, and `prepack` copies the repo-root `CHANGELOG.md` into the package —
+  a real committed copy, never a symlink — so Pi shows the release notes under
+  "Extension Updates" after an update.
+- `scripts/bump-version.sh` now refuses a bump whose version has no `## [X.Y.Z]`
+  heading in `CHANGELOG.md` (add the release notes first), and syncs the
+  `plugins/pi/CHANGELOG.md` copy into the release commit.
+
+### Changed
+
+- Backfilled `CHANGELOG.md` release headings for 0.5.1 through 0.9.2 from the
+  git tags — those notes had accumulated under `[Unreleased]` without ever being
+  turned into dated release sections.
+
+## [0.9.2] - 2026-09-20
+
+### Added
+
+- pi.dev gallery preview card for the Pi extension (`pi.image`,
+  `assets/preview.png`, and a generator script).
+
+### Fixed
+
+- Regenerated `release.yml`'s tag-pattern quoting to match the current
+  cargo-dist version.
+
+## [0.9.1] - 2026-09-15
+
+### Fixed
+
+- **Pi extension: the SIGINT cleanup belt no longer wedges pi.** The handler
+  now removes itself before re-raising, guarded to run once per process.
+
+### Changed
+
+- CI: actions/checkout and actions/setup-node v4 → v6 (Node 24); prettier is
+  pinned over biome in the pi-lens formatter cascade, and the affected files
+  were normalized to prettier-canonical formatting.
+
+## [0.9.0] - 2026-08-31
+
+### Added
+
 - **`down --detach-all` — release a profile held by other (or dead) clients.**
   A normal `down` releases only *your* PID's refs, which fails when the refs
   belong to other PIDs (other live sessions, or processes that died without
@@ -28,6 +86,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaving you to guess which PID to pass to `--pid` (or reach for `admin kill`).
   The client map is read under the same lock as the decrement itself, so the
   list is consistent with the failed update.
+- Project logo, wired into the README and the Quarto site.
+- Pi integration guide (`docs/PI.md`), linked from the README and the site.
+
+### Changed
+
+- `.pi/` local agent settings are now ignored.
+
+## [0.8.2] - 2026-08-19
+
+Re-release of 0.8.1 — lockstep version bump only, no code changes.
+
+## [0.8.1] - 2026-08-18
+
+### Changed
+
+- The Pi extension carries the `pi-package` keyword so it lists in the Pi
+  directory.
+
+## [0.8.0] - 2026-08-17
+
+### Added
+
 - **On-demand commands / status surface across hosts.** **Pi** — a `/sharedserver`
   slash command (`status`, `up <profile>`, `down <profile>`, `config show`,
   `config lookup <name>`, with autocomplete); **Neovim** — `:ServerUp [profile]` /
@@ -51,6 +131,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (unknown keys preserved) and taken under a per-file lock. The intended
   lifecycle is `lookup` → `register --if-absent` → `up`, which lets plugins in
   other repos self-define cooperatively without clashing.
+
+## [0.7.0] - 2026-08-17
+
+### Added
+
 - **Profiles and the `up`/`down` verbs.** `servers.json` gains an optional
   top-level `profiles` map (`{ "<profile>": ["<server>", ...] }`) that groups
   servers, and the binary now owns config parsing: it reads the file, expands
@@ -64,7 +149,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatible). `up` honours `lazy` and `skipIfEnv` and tolerates a single server
   failing without aborting the rest. `--profile-optional` suppresses the
   "unknown profile" warning for a program asking for its own, possibly-undefined
-  host profile (the plain CLI still warns).
+  host profile (the plain CLI still warns). `up`/`down` also gained `--json`
+  machine-readable output, and each host plugin migrated to
+  `up/down --profile <host>`.
+
+## [0.6.9] - 2026-08-17
+
+### Added
+
+- **Pi plugin** (`@geohar/pi-sharedserver`) under `plugins/pi`, published to npm
+  in lockstep with the unified release tag.
+
+### Changed
+
+- FlakeHub publish skips prerelease tags.
+
+## [0.6.8] - 2026-07-20
+
+### Fixed
+
+- The marketplace listing now advertises the Claude plugin's version in its
+  `plugins[]` entry, so `/plugin marketplace` sees the installable version.
+
+## [0.6.7] - 2026-07-20
+
+### Changed
+
+- The OpenCode resolver is extracted into a vendorable module.
+
+## [0.6.6] - 2026-07-20
+
+### Fixed
+
+- The shim's "fetching vX" line interpolated the *host* plugin's version even
+  when `SS_INSTALLER_URL` overrides the pin; it now describes what it actually
+  fetches.
+
+## [0.6.5] - 2026-07-20
+
+### Added
+
+- **The plugin shim is vendorable.** Everything that differs per consuming repo
+  now lives in an optional adjacent `sharedserver.conf` (`SS_LABEL`,
+  `SS_MIN_VERSION`, `SS_INSTALLER_URL`); empty defaults reproduce this plugin's
+  own behaviour exactly, so consumers can vendor byte-identical copies without
+  drift. Missing `jq`/`envsubst` are surfaced clearly instead of failing obscurely.
+
+## [0.6.4] - 2026-07-20
+
+### Added
+
+- `scripts/bump-version.sh` accepts semver prerelease versions
+  (`0.6.4-alpha.1`). Prerelease tags build and host binaries but **skip the
+  crates.io publish**, giving a dev-release channel where nothing irreversible
+  happens. Prereleases are ordered by semver precedence (a prerelease ranks below
+  the release it leads to).
+
+### Changed
+
+- crates.io publishing now uses OIDC trusted publishing (no stored token).
+
+## [0.6.3] - 2026-07-19
+
+### Added
+
+- The OpenCode plugin reads the shared `servers.json`, at parity with the
+  Claude plugin.
+
+### Changed
+
+- Rendered docs strip the crates.io badge via a pandoc filter instead of
+  markdown markers.
+
+## [0.6.2] - 2026-07-19
+
+### Added
+
+- Per-project sharedserver config with walk-up discovery.
+
+## [0.6.1] - 2026-07-18
+
+### Fixed
+
+- Plugin READMEs link to GitHub URLs (Quarto link-check); `bump-version.sh`
+  synced across repos.
+
+## [0.6.0] - 2026-07-18
+
+### Added
+
 - **Prebuilt binaries for every release**, built by
   [cargo-dist](https://opensource.axo.dev/cargo-dist/) for macOS and Linux on both
   x86_64 and arm64, published to the GitHub release alongside a hosted
@@ -77,14 +250,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so sessions starting simultaneously coordinate rather than race, and a failed
   download falls back to whatever binary was already present rather than leaving you
   with nothing.
-- `scripts/bump-version.sh` accepts semver prerelease versions (`0.6.4-alpha.1`).
-  Prerelease tags build and host binaries but **skip the crates.io publish**, giving
-  a dev-release channel where nothing irreversible happens.
 - Embedded the sibling editor plugins as plain in-tree directories under
   `plugins/`:
-  [`opencode-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/opencode)
+  [`opencode-sharedserver`](https://github.com/geoharker/sharedserver/tree/main/plugins/opencode)
   at `plugins/opencode` and
-  [`claude-sharedserver`](https://github.com/georgeharker/sharedserver/tree/main/plugins/claude)
+  [`claude-sharedserver`](https://github.com/geoharker/sharedserver/tree/main/plugins/claude)
   at `plugins/claude`, with new
   [OpenCode](docs/OPENCODE.md) and [Claude Code](docs/CLAUDE_CODE.md)
   integration guides and a README section. (Both were briefly vendored as git
@@ -109,13 +279,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sources kept in `docs/`): the state machine and lifecycle timeline in the
   README, and the `:ServerStatus` window mockup in `docs/NEOVIM.md`.
 
-### Deprecated
+## [0.5.2] - 2026-06-30
 
-### Removed
+Re-release of 0.5.1 — version bump only, no code changes.
+
+## [0.5.1] - 2026-06-30
+
+### Added
+
+- treefmt (stylua/nixfmt/statix) in the flake, plus `.stylua.toml`.
+
+### Changed
+
+- Lua formatted with stylua (4-space/120) and Rust with `cargo fmt`; the README's
+  ASCII architecture diagram replaced with a rendered SVG/PNG.
 
 ### Fixed
 
-### Security
+- Nix: daemon integration tests are skipped in the Linux sandbox build;
+  `flake.lock` synced with `flake.nix` inputs.
+- CI: nix flake check + build, stylua, rust fmt/clippy, FlakeHub publish,
+  flake-lock.
 
 ## [0.5.0] - 2026-06-27
 
