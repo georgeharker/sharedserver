@@ -50,6 +50,7 @@ TARGETS=()     # parallel: "toml" | "json"
 
 # pyproject.toml: the project's own (root OR a package subdir, e.g. combiner/),
 # excluding vendored/submodule copies (vendor/, node_modules/).
+_py=()  # declared for shellcheck; read_lines fills it via eval
 read_lines _py < <(find "$ROOT" -name pyproject.toml \
                    -not -path '*/vendor/*' -not -path '*/node_modules/*' -not -path '*/target/*' -not -path '*/.git/*' 2>/dev/null \
                    | while read -r f; do grep -qE '^version *= *"' "$f" && echo "$f"; done)
@@ -57,18 +58,22 @@ if [ "${#_py[@]}" -eq 1 ]; then MANIFESTS+=("${_py[0]}"); TARGETS+=("toml")
 elif [ "${#_py[@]}" -gt 1 ]; then die "multiple versioned pyproject.toml found; pick one: ${_py[*]}"; fi
 
 # Cargo.toml: the one with a top-level [package] version (rust/ or root). Skip target/.
+_cg=()  # declared for shellcheck; read_lines fills it via eval
 read_lines _cg < <(find "$ROOT" -name Cargo.toml -not -path '*/target/*' -not -path '*/node_modules/*' 2>/dev/null \
                    | while read -r f; do grep -qE '^version *= *"' "$f" && echo "$f"; done)
 CARGO=""
 if [ "${#_cg[@]}" -eq 1 ]; then CARGO="${_cg[0]}"; MANIFESTS+=("$CARGO"); TARGETS+=("toml")
 elif [ "${#_cg[@]}" -gt 1 ]; then die "multiple versioned Cargo.toml found; pick one: ${_cg[*]}"; fi
 
+
+_pj=()  # declared for shellcheck; read_lines fills it via eval
 read_lines _pj < <(find "$ROOT" -path '*/.claude-plugin/plugin.json' -not -path '*/node_modules/*' 2>/dev/null)
 [ "${#_pj[@]}" -eq 1 ] || die "expected exactly one .claude-plugin/plugin.json, found ${#_pj[@]}: ${_pj[*]:-none}"
 PLUGIN_JSON="${_pj[0]}"; MANIFESTS+=("$PLUGIN_JSON"); TARGETS+=("json")
 
 OPENCODE_PKG="$ROOT/plugins/opencode/package.json"
 if [ ! -f "$OPENCODE_PKG" ]; then
+  _oc=()  # declared for shellcheck; read_lines fills it via eval
   read_lines _oc < <(find "$ROOT/plugins" -maxdepth 2 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
   [ "${#_oc[@]}" -eq 1 ] || die "could not uniquely locate the opencode package.json"
   OPENCODE_PKG="${_oc[0]}"

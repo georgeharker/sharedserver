@@ -26,3 +26,10 @@ installers = ["shell"]
 # x86_64-pc-windows-msvc`. That is a port behind a platform/ abstraction, not a config
 # entry, and adding it here would block the whole release rather than skip an artifact.
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+
+# GitHub retired the macos-14 image (jobs on it fail at once with "configuration
+# 'macos-14-arm64-us-default' is not supported"), but dist 0.32 still defaults
+# aarch64-apple-darwin to it. Pin the arm runner explicitly; the Intel target
+# already defaults to macos-15-intel.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
