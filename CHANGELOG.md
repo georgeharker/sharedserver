@@ -256,7 +256,8 @@ Re-release of 0.8.1 — lockstep version bump only, no code changes.
   at `plugins/opencode` and
   [`claude-sharedserver`](https://github.com/geoharker/sharedserver/tree/main/plugins/claude)
   at `plugins/claude`, with new
-  [OpenCode](docs/OPENCODE.md) and [Claude Code](docs/CLAUDE_CODE.md)
+  [OpenCode](https://github.com/geoharker/sharedserver/blob/main/docs/OPENCODE.md) and
+  [Claude Code](https://github.com/geoharker/sharedserver/blob/main/docs/CLAUDE_CODE.md)
   integration guides and a README section. (Both were briefly vendored as git
   submodules; they are now ordinary tracked directories.)
 
