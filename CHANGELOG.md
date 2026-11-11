@@ -19,7 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.9.4] - 2026-11-11
+
+First published release carrying the 0.9.3 changes below. 0.9.3 was tagged but
+its release build failed, so it never reached crates.io, npm, or GitHub Releases.
+
+### Fixed
+
+- **Release: the aarch64-apple-darwin build runs on `macos-15`.** GitHub retired
+  the `macos-14` image that cargo-dist 0.32 still defaults to, so that job failed
+  at once and blocked every publish step. It is now pinned via
+  `[dist.github-custom-runners]`.
+- The changelog's links to the OpenCode / Claude Code guides are absolute, so
+  they resolve from the Pi package's copy as well as from the repo root.
+
 ## [0.9.3] - 2026-11-11
+
+Tagged but not published; see 0.9.4.
 
 ### Added
 
