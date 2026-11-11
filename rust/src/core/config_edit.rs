@@ -100,7 +100,16 @@ fn union_into_profiles(root: &mut Value, name: &str, profiles: &[String]) -> Res
     Ok(())
 }
 
-/// Remove `names` from every profile; drop any profile left empty.
+/// Remove `names` from `arr`; true when that took it from non-empty to empty.
+/// An already-empty list reports false, so an empty profile someone declared
+/// on purpose (a host's placeholder, say) is never swept up by an unrelated edit.
+fn remove_members(arr: &mut Vec<Value>, names: &[String]) -> bool {
+    let had_members = !arr.is_empty();
+    arr.retain(|v| !names.iter().any(|n| v.as_str() == Some(n.as_str())));
+    had_members && arr.is_empty()
+}
+
+/// Remove `names` from every profile; drop the profiles this emptied.
 fn cascade_remove_from_profiles(root: &mut Value, names: &[String]) -> Result<()> {
     let obj = root
         .as_object_mut()
@@ -108,12 +117,16 @@ fn cascade_remove_from_profiles(root: &mut Value, names: &[String]) -> Result<()
     let Some(profs) = obj.get_mut("profiles").and_then(|v| v.as_object_mut()) else {
         return Ok(());
     };
-    for list in profs.values_mut() {
-        if let Some(arr) = list.as_array_mut() {
-            arr.retain(|v| !names.iter().any(|n| v.as_str() == Some(n.as_str())));
-        }
+    let emptied: Vec<String> = profs
+        .iter_mut()
+        .filter_map(|(p, list)| {
+            let arr = list.as_array_mut()?;
+            remove_members(arr, names).then(|| p.clone())
+        })
+        .collect();
+    for p in &emptied {
+        profs.remove(p);
     }
-    profs.retain(|_, list| list.as_array().map(|a| !a.is_empty()).unwrap_or(true));
     Ok(())
 }
 
@@ -226,14 +239,18 @@ pub fn profile_add(path: &Path, profile: &str, names: &[String]) -> Result<()> {
     })
 }
 
-/// Remove `names` from `profile`; drop the profile if it becomes empty.
+/// Remove `names` from `profile`; drop the profile if that empties it. Other
+/// profiles are untouched, empty or not.
 pub fn profile_remove(path: &Path, profile: &str, names: &[String]) -> Result<()> {
     edit(path, |root| {
         let profs = obj_field(root, "profiles")?;
-        if let Some(list) = profs.get_mut(profile).and_then(|v| v.as_array_mut()) {
-            list.retain(|v| !names.iter().any(|n| v.as_str() == Some(n.as_str())));
+        let emptied = profs
+            .get_mut(profile)
+            .and_then(|v| v.as_array_mut())
+            .is_some_and(|list| remove_members(list, names));
+        if emptied {
+            profs.remove(profile);
         }
-        profs.retain(|_, list| list.as_array().map(|a| !a.is_empty()).unwrap_or(true));
         Ok(())
     })
 }
@@ -450,6 +467,47 @@ mod tests {
         assert_eq!(t.read()["profiles"]["web"], json!(["chroma"]));
         profile_remove(t.path(), "web", &["chroma".into()]).unwrap();
         assert!(t.read()["profiles"].get("web").is_none()); // empty profile dropped
+    }
+
+    // Write a config with a declared-empty profile alongside a populated one.
+    fn with_empty_profile(t: &Tmp) {
+        register(
+            t.path(),
+            "A",
+            "chroma",
+            spec("chroma"),
+            &["web".into()],
+            false,
+        )
+        .unwrap();
+        let mut root = t.read();
+        root["profiles"]["claude"] = json!([]);
+        std::fs::write(t.path(), serde_json::to_string_pretty(&root).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn unregister_keeps_unrelated_empty_profiles() {
+        // The real-world case: a host's empty placeholder profile was swept away
+        // by another scope unregistering its own server.
+        let t = Tmp::new("unregkeep");
+        with_empty_profile(&t);
+        unregister(t.path(), "A", Some("chroma")).unwrap();
+        let root = t.read();
+        assert!(root["profiles"].get("web").is_none()); // emptied by this edit: dropped
+        assert_eq!(root["profiles"]["claude"], json!([])); // already empty: kept
+    }
+
+    #[test]
+    fn profile_remove_keeps_unrelated_empty_profiles() {
+        let t = Tmp::new("profremovekeep");
+        with_empty_profile(&t);
+        profile_remove(t.path(), "web", &["chroma".into()]).unwrap();
+        let root = t.read();
+        assert!(root["profiles"].get("web").is_none());
+        assert_eq!(root["profiles"]["claude"], json!([]));
+        // Removing a non-member from an empty profile leaves it in place.
+        profile_remove(t.path(), "claude", &["chroma".into()]).unwrap();
+        assert_eq!(t.read()["profiles"]["claude"], json!([]));
     }
 
     #[test]

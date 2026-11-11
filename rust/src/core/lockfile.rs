@@ -126,6 +126,9 @@ where
         .read(true)
         .write(true)
         .create(true)
+        // Never truncate: the open happens BEFORE the flock below, so truncating
+        // here would wipe the state out from under whoever currently holds the lock.
+        .truncate(false)
         .open(path)
         .with_context(|| format!("Failed to open lockfile: {:?}", path))?;
 

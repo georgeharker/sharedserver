@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Config edits no longer delete unrelated empty profiles.** `config unregister`
+  and `config profile remove` used to drop *every* empty profile in
+  `servers.json`, so one scope unregistering its own server could silently remove
+  another host's deliberately empty placeholder (e.g. `"claude": []`). They now
+  drop only a profile that the edit itself emptied.
+- Made the exclusive lockfile open's no-truncate behaviour explicit
+  (`truncate(false)`). The open happens before the `flock`, so truncating there
+  would wipe state another holder is using. No behaviour change; this satisfies
+  newer clippy's `suspicious_open_options` lint, whose suggested `.truncate(true)`
+  would have been a bug.
+
 ### Security
 
 ## [0.9.4] - 2026-11-11
