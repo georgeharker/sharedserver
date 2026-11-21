@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.9.6] - 2026-11-21
+
+### Fixed
+
+- **Concurrent `use` on a stopped server starts exactly one instance.** `use`
+  checked the state and wrote the lockfiles with nothing held in between, so
+  callers arriving together could each start their own server (the loser can't
+  bind its port) and lose references: 10 simultaneous cold `use` calls started
+  two servers in about 1 run in 5. A per-server launch lock
+  (`<name>.launch.lock`, exclusive `flock`) now serializes the start-or-attach
+  decision in `use` and `admin start`: queued callers wait, then see the
+  started server and attach. The holder deletes the file as it releases it, so
+  it only exists while a launch is in progress. `admin incref`/`decref` are
+  break-glass tools and deliberately don't take it.
+
 ## [0.9.5] - 2026-11-11
 
 ### Fixed

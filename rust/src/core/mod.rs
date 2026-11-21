@@ -16,7 +16,7 @@ pub use health::{
 };
 pub use lockfile::{
     clients_lock_exists, delete_clients_lock, delete_locks_owned_by, delete_server_lock,
-    read_clients_lock, read_server_lock, server_lock_exists, with_lock, write_clients_lock,
-    write_server_lock, ClientInfo, ClientsLock, ServerLock,
+    launch_lockfile_path, read_clients_lock, read_server_lock, server_lock_exists, with_lock,
+    write_clients_lock, write_server_lock, ClientInfo, ClientsLock, LaunchLock, ServerLock,
 };
 pub use state::{get_server_state, watcher_alive, ServerState};

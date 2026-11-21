@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
-use sharedserver::core::{get_server_state, read_clients_lock, read_server_lock, ServerState};
+use sharedserver::core::{
+    get_server_state, read_clients_lock, read_server_lock, LaunchLock, ServerState,
+};
 
 use crate::output::{
     format_pid, format_refcount, format_server_name, print_success, print_warning,
@@ -27,6 +29,13 @@ pub fn execute(
     // Determine the client PID (use provided or default to parent process)
     let client_pid = get_client_pid(pid);
 
+    // Serialize the whole start-or-attach decision per server. Without this, two
+    // concurrent `use` calls could both read Stopped and each start an instance
+    // (and lose a reference). Held until we return: through the attach paths, or
+    // (when starting) until the new instance has published its PIDs, so a
+    // queued caller always sees a fully published Active server.
+    let launch = LaunchLock::acquire(name)?;
+
     // Check current state
     let state = get_server_state(name)?;
 
@@ -43,15 +52,14 @@ pub fn execute(
 
             // Start the server atomically with this client as the initial client (refcount=1)
             // This avoids the refcount=0 window that would trigger immediate grace period
-            super::start::execute_with_client(
+            let spec = super::start::StartSpec {
                 name,
                 grace_period,
                 env_vars,
                 command,
-                client_pid,
-                metadata.clone(),
                 log_file,
-            )?;
+            };
+            super::start::execute_with_client(launch, spec, client_pid, metadata.clone())?;
 
             // Read the server and clients info to get PID and refcount for output
             if let Ok(server_lock) = read_server_lock(name) {

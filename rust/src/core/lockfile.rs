@@ -97,6 +97,118 @@ pub fn clients_lockfile_path(name: &str) -> Result<PathBuf> {
     Ok(ensure_lockfile_dir()?.join(format!("{}.clients.json", name)))
 }
 
+/// Get path to the per-server launch lock (see [`LaunchLock`]).
+pub fn launch_lockfile_path(name: &str) -> Result<PathBuf> {
+    Ok(ensure_lockfile_dir()?.join(format!("{}.launch.lock", name)))
+}
+
+/// Exclusive per-server lock serializing the start-or-attach decision.
+///
+/// Without it, `use` reads the state and writes the lockfiles with nothing held
+/// in between, so concurrent `use` calls on a Stopped server could each start
+/// their own instance (last writer wins the lockfiles, the loser can't bind its
+/// port) and lose references. `use` and `admin start` hold this from before the
+/// state check until they have attached, or until the instance they started has
+/// published its PIDs; others block, then see Active and attach.
+///
+/// Lock order: the launch lock is OUTERMOST. The `server.json` / `clients.json`
+/// locks are only ever taken briefly (one read or write) inside it, and nothing
+/// takes the launch lock while holding either of them. The watcher, `unuse`,
+/// `stop`, `kill` and teardown never take it. `admin incref` / `admin decref`
+/// are break-glass tools and deliberately do NOT take it: they act on the
+/// refcount directly, so they can still race a concurrent start.
+///
+/// Lifetime: the file exists only while a launcher holds or awaits the lock.
+/// The holder deletes it just before releasing (on drop). That is only safe
+/// together with the re-check in [`LaunchLock::acquire`]: a flock belongs to the
+/// file, not the name, so a waiter that was queued on the deleted file wakes
+/// holding a lock nobody else can see, while a newcomer creates and locks a
+/// fresh file. The re-check notices that the name no longer refers to the file
+/// it locked, and retries on the current one.
+///
+/// Fork: a flock belongs to the open file description, which `fork` shares. A
+/// forked child must call [`LaunchLock::close_in_child`] (close its copy, never
+/// `LOCK_UN`, never delete), or the long-lived watcher would hold it forever
+/// (and an unlock in the child would release it for the parent too). Exec'd
+/// children are covered by `O_CLOEXEC`, which Rust sets on every open.
+pub struct LaunchLock {
+    /// `None` once handed off by [`LaunchLock::close_in_child`].
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl LaunchLock {
+    /// Block until this process holds the launch lock for `name`.
+    pub fn acquire(name: &str) -> Result<Self> {
+        Self::acquire_at(launch_lockfile_path(name)?)
+    }
+
+    fn acquire_at(path: PathBuf) -> Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        loop {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .with_context(|| format!("Failed to open launch lock: {:?}", path))?;
+            flock(file.as_raw_fd(), FlockArg::LockExclusive)
+                .with_context(|| format!("Failed to acquire launch lock on: {:?}", path))?;
+
+            // Re-check: is the file we locked still the one at `path`? If the
+            // previous holder deleted it while we waited, we hold a lock on a
+            // nameless file, so drop it and lock the current one instead.
+            let ours = file
+                .metadata()
+                .with_context(|| format!("Failed to stat launch lock: {:?}", path))?;
+            match std::fs::metadata(&path) {
+                Ok(now) if now.dev() == ours.dev() && now.ino() == ours.ino() => {
+                    return Ok(Self {
+                        file: Some(file),
+                        path,
+                    });
+                }
+                // Deleted or replaced while we waited: retry.
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    return Err(e)
+                        .with_context(|| format!("Failed to stat launch lock: {:?}", path))
+                }
+            }
+        }
+    }
+
+    /// In a forked child: close the inherited descriptor WITHOUT unlocking or
+    /// deleting, so the parent keeps the lock and the child doesn't extend it.
+    pub fn close_in_child(mut self) {
+        drop(self.file.take());
+    }
+}
+
+impl Drop for LaunchLock {
+    /// Delete the file while still holding the lock, then close (which
+    /// releases it). Waiters queued on this file re-check, see it's gone, and
+    /// retry on whatever file the name refers to next.
+    fn drop(&mut self) {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(file) = self.file.take() {
+            // Only delete the file WE locked. Under the protocol it always is,
+            // but if something outside sharedserver deleted it and a newcomer
+            // locked a fresh one, removing that would let a third caller in.
+            let same = match (file.metadata(), std::fs::metadata(&self.path)) {
+                (Ok(ours), Ok(now)) => ours.dev() == now.dev() && ours.ino() == now.ino(),
+                _ => false,
+            };
+            if same {
+                let _ = std::fs::remove_file(&self.path);
+            }
+            drop(file);
+        }
+    }
+}
+
 /// Perform read-only operation with shared lock (allows multiple concurrent readers)
 pub fn with_shared_lock<F, R>(path: &Path, operation: F) -> Result<R>
 where
@@ -251,4 +363,78 @@ pub fn clients_lock_exists(name: &str) -> bool {
     clients_lockfile_path(name)
         .map(|p| p.exists())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn tmp_lock(tag: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("ss-launch-{tag}-{}.lock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        p
+    }
+
+    /// Can anyone else lock the file currently at `path` right now?
+    fn lockable_now(path: &Path) -> bool {
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .unwrap();
+        flock(f.as_raw_fd(), FlockArg::LockExclusiveNonblock).is_ok()
+    }
+
+    #[test]
+    fn holder_deletes_the_file_on_release() {
+        let p = tmp_lock("drop");
+        let lock = LaunchLock::acquire_at(p.clone()).unwrap();
+        assert!(p.exists());
+        drop(lock);
+        assert!(
+            !p.exists(),
+            "the holder deletes the lock file before releasing"
+        );
+    }
+
+    #[test]
+    fn waiter_on_a_deleted_file_relocks_the_current_one() {
+        // A holds; B queues on A's file; A deletes + releases. B must not keep a
+        // lock on the nameless file: it has to end up holding whatever file the
+        // name refers to, so a newcomer still blocks.
+        let p = tmp_lock("requeue");
+        let a = LaunchLock::acquire_at(p.clone()).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let pb = p.clone();
+        let waiter = std::thread::spawn(move || {
+            let b = LaunchLock::acquire_at(pb).unwrap();
+            tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(300)); // hold while main probes
+            drop(b);
+        });
+        std::thread::sleep(Duration::from_millis(100)); // let B block on A's file
+        drop(a);
+        rx.recv_timeout(Duration::from_secs(5)).expect("B acquired");
+        assert!(p.exists(), "B re-created the file at the name");
+        assert!(
+            !lockable_now(&p),
+            "B holds the file at the name: a newcomer must block"
+        );
+        waiter.join().unwrap();
+        assert!(!p.exists(), "B deleted it on release");
+    }
+
+    #[test]
+    fn close_in_child_never_deletes() {
+        let p = tmp_lock("child");
+        LaunchLock::acquire_at(p.clone()).unwrap().close_in_child();
+        assert!(
+            p.exists(),
+            "a forked child's close must not delete the parent's lock file"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
 }

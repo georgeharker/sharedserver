@@ -1035,3 +1035,92 @@ fn test_down_detach_all() {
     cleanup_lock_files(server_name);
     let _ = fs::remove_file(&config_path);
 }
+
+/// Concurrent cold `use` calls on a Stopped server must start exactly one
+/// instance and keep every caller's reference. Before the per-server launch
+/// lock, the state check and the lockfile writes had nothing held between them:
+/// in a 10-way race roughly 1 in 5 runs started two servers and many lost refs.
+#[test]
+#[serial]
+fn test_concurrent_cold_use_starts_one_server() {
+    const N: usize = 10;
+    let server_name = "test_concurrent_cold_use";
+    cleanup_lock_files(server_name);
+
+    // N distinct, live client PIDs (refs are keyed by PID).
+    let mut holders: Vec<std::process::Child> = (0..N)
+        .map(|_| {
+            Command::new("sleep")
+                .arg("60")
+                .spawn()
+                .expect("spawn client holder")
+        })
+        .collect();
+    let pids: Vec<String> = holders.iter().map(|c| c.id().to_string()).collect();
+
+    // Release every `use` at once to maximize overlap in the start window.
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
+    let handles: Vec<_> = pids
+        .iter()
+        .cloned()
+        .map(|pid| {
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                run_command(&[
+                    "use",
+                    server_name,
+                    "--pid",
+                    &pid,
+                    "--grace-period",
+                    "2s",
+                    "--",
+                    "sleep",
+                    "60",
+                ])
+            })
+        })
+        .collect();
+    let outputs: Vec<_> = handles
+        .into_iter()
+        .map(|h| h.join().expect("use thread"))
+        .collect();
+
+    let mut started = 0;
+    for out in &outputs {
+        assert!(
+            out.status.success(),
+            "every concurrent use should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if String::from_utf8_lossy(&out.stdout).contains("Started server") {
+            started += 1;
+        }
+    }
+    assert_eq!(started, 1, "exactly one use should start the server");
+
+    let clients_lock = test_lockdir().join(format!("{}.clients.json", server_name));
+    let clients: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&clients_lock).expect("clients lock"))
+            .expect("clients lock JSON");
+    assert_eq!(
+        clients["refcount"], N,
+        "every caller's reference must survive the race"
+    );
+
+    // Each launcher deletes the launch lock before releasing it, so once every
+    // `use` has returned none is left behind.
+    let launch_lock = test_lockdir().join(format!("{}.launch.lock", server_name));
+    assert!(
+        !launch_lock.exists(),
+        "no launch lock may be left once every use has returned"
+    );
+
+    run_command(&["admin", "kill", server_name]);
+    for h in &mut holders {
+        let _ = h.kill();
+        let _ = h.wait();
+    }
+    thread::sleep(Duration::from_millis(500));
+    cleanup_lock_files(server_name);
+}

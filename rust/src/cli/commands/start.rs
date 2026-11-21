@@ -5,9 +5,20 @@ use nix::unistd::{fork, setpgid, setsid, ForkResult, Pid};
 use sharedserver::core::{
     delete_clients_lock, delete_server_lock, get_server_state, is_process_alive, parse_duration,
     process_start_stamp, read_server_lock, server_lock_exists, write_clients_lock,
-    write_server_lock, ClientInfo, ClientsLock, ServerLock, ServerState,
+    write_server_lock, ClientInfo, ClientsLock, LaunchLock, ServerLock, ServerState,
 };
 use std::collections::HashMap;
+
+/// What to start: everything about the server itself, as opposed to who is
+/// starting it (the launch lock and any initial client).
+#[derive(Clone, Copy)]
+pub struct StartSpec<'a> {
+    pub name: &'a str,
+    pub grace_period: &'a str,
+    pub env_vars: &'a [String],
+    pub command: &'a [String],
+    pub log_file: Option<&'a str>,
+}
 
 /// Start a server with no initial clients (refcount=0)
 pub fn execute(
@@ -17,38 +28,46 @@ pub fn execute(
     command: &[String],
     log_file: Option<&str>,
 ) -> Result<()> {
-    execute_internal(name, grace_period, env_vars, command, None, log_file)
-}
-
-/// Start a server with an initial client atomically (refcount=1)
-/// This is used by the `use` command to avoid the refcount=0 window
-pub fn execute_with_client(
-    name: &str,
-    grace_period: &str,
-    env_vars: &[String],
-    command: &[String],
-    client_pid: i32,
-    metadata: Option<String>,
-    log_file: Option<&str>,
-) -> Result<()> {
-    execute_internal(
+    let launch = LaunchLock::acquire(name)?;
+    let spec = StartSpec {
         name,
         grace_period,
         env_vars,
         command,
-        Some((client_pid, metadata)),
         log_file,
-    )
+    };
+    execute_internal(launch, spec, None)
 }
 
-fn execute_internal(
-    name: &str,
-    grace_period: &str,
-    env_vars: &[String],
-    command: &[String],
-    initial_client: Option<(i32, Option<String>)>,
-    log_file: Option<&str>,
+/// Start a server with an initial client atomically (refcount=1)
+/// This is used by the `use` command to avoid the refcount=0 window.
+/// The caller must already hold `launch` for `spec.name` (taken before its own
+/// state check); it is released once the new instance has published its PIDs.
+pub fn execute_with_client(
+    launch: LaunchLock,
+    spec: StartSpec,
+    client_pid: i32,
+    metadata: Option<String>,
 ) -> Result<()> {
+    execute_internal(launch, spec, Some((client_pid, metadata)))
+}
+
+/// `launch` is held for the whole call: the state check, the lockfile writes, and
+/// the wait for the watcher to publish. Concurrent starters block on it and then
+/// see the published instance.
+fn execute_internal(
+    launch: LaunchLock,
+    spec: StartSpec,
+    initial_client: Option<(i32, Option<String>)>,
+) -> Result<()> {
+    let StartSpec {
+        name,
+        grace_period,
+        env_vars,
+        command,
+        log_file,
+    } = spec;
+
     // Validate grace period
     let _grace_duration = parse_duration(grace_period)
         .with_context(|| format!("Invalid grace period: {}", grace_period))?;
@@ -129,7 +148,10 @@ fn execute_internal(
     // post-fork-exec re-invocation or async-signal-safe-only code.
     match unsafe { fork() } {
         Ok(ForkResult::Child) => {
-            // First child: become the watcher process
+            // First child: become the watcher process. Close our inherited copy of
+            // the launch lock first, without unlocking: the parent still holds it
+            // until publish, and the long-lived watcher must not extend it.
+            launch.close_in_child();
             setsid().context("Failed to create new session for watcher")?;
 
             // CRITICAL: Redirect watcher's stdout/stderr immediately to prevent blocking
